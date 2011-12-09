@@ -367,5 +367,14 @@ var CallHandler = {
 window.addEventListener('load', function keyboardInit(evt) {
   window.removeEventListener('load', keyboardInit);
   KeyHandler.init();
+
+  navigator.mozTelephony.addEventListener("incoming", function (event) {
+    // yeah, this doesn't work, because no 'call' property declared on event
+    // let's just grab the call object from the liveCalls list.
+    //var call = event.call;
+    var call = navigator.mozTelephony.liveCalls[0];
+    console.log("incoming call from " + call.number);
+    CallHandler.incoming(call);
+  });
 });
 
