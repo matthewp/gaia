@@ -1,0 +1,3 @@
+[submodule "apps/b2g-phoney"]
+	path = apps/b2g-phoney
+	url = https://matthewp@github.com/matthewp/b2g-phoney
