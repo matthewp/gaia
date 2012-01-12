@@ -504,6 +504,24 @@ if (true) {
               '120': '/style/icons/Phone.png'
             }
           }
+        },
+        { // at-work
+          'installOrigin': 'http://gaiamobile.org:8888',
+          'origin': '../at-work',
+          'receipt': null,
+          'installTime': 1323339869000,
+          manifest: {
+            'name': 'At Work',
+            'description': 'Work logging application.',
+            'launch_path': '/atwork.html',
+            'developer': {
+              'name': 'Matthew Phillips',
+              'url': 'http://www.matthewphillips.info'
+            },
+            'icons': {
+              '120': '/style/icons/Phone.png'
+            }
+          }
         }
       ];
 
