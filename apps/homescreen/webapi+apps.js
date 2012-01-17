@@ -487,24 +487,6 @@ if (true) {
             }
           }
         },
-        { // b2g-phoney
-          'installOrigin': 'http://gaiamobile.org:8888',
-          'origin': '../b2g-phoney',
-          'receipt': null,
-          'installTime': 1323339869000,
-          manifest: {
-            'name': 'Phone',
-            'description': 'Dialer.ws',
-            'launch_path': '/index.html',
-            'developer': {
-              'name': 'Matthew Phillips',
-              'url': 'http://www.matthewphillips.info'
-            },
-            'icons': {
-              '120': '/style/icons/Phone.png'
-            }
-          }
-        },
         { // at-work
           'installOrigin': 'http://gaiamobile.org:8888',
           'origin': '../at-work',
