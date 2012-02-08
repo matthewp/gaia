@@ -30,6 +30,8 @@ var JSZhuYing = function JSZhuYing(settings) {
   // XXX This is dirty.
   if (!settings.progress) {
     settings.progress = function settingsProgress() {};
+  }
+  if (!settings.ready) {
     settings.ready = function settingsReady() {};
   }
 
@@ -41,7 +43,7 @@ var JSZhuYing = function JSZhuYing(settings) {
 
   var version = '0.1';
   var dbName = 'JSZhuYing';
-  var dbVersion = 4;
+  var dbVersion = 6;
   var jsonData;
   var cache = {};
   var cacheTimer;
@@ -55,6 +57,7 @@ var JSZhuYing = function JSZhuYing(settings) {
       getTermsJSON(
         function() {
           settings.ready.call(self);
+          debug('JSZhuYing: Ready.');
         }
       );
       return;
@@ -75,9 +78,9 @@ var JSZhuYing = function JSZhuYing(settings) {
           return;
         }
         var transaction = db.transaction('terms'),
-        req = transaction.objectStore('terms').count();
+        req = transaction.objectStore('terms').get('_last_entry_');
         req.onsuccess = function(ev) {
-          if (req.result !== 0) {
+          if (ev.target.result !== undefined) {
             settings.ready.call(self);
             return;
           }
@@ -146,6 +149,8 @@ var JSZhuYing = function JSZhuYing(settings) {
       }
     }
     chunks.push(chunk);
+    chunks.push(['_last_entry_']);
+    jsonData['_last_entry_'] = true;
 
     var loadChunk = function () {
       debug('JSZhuYing: Loading a chunk of data into IndexedDB, ' + (chunks.length -1) + ' chunks remaining.');
@@ -182,26 +187,56 @@ var JSZhuYing = function JSZhuYing(settings) {
 
   };
 
-  var getTermsJSON = function(callback) {
-    // Get data.json.js
+  var getTermsJSON = function (callback) {
+
     // this is the database we need to get terms against.
     // the JSON is converted from tsi.src and phone.cin in Chewing source code.
     // https://github.com/chewing/libchewing/blob/master/data/tsi.src
     // https://github.com/chewing/libchewing/blob/master/data/phone.cin
 
-    var xhr = new XMLHttpRequest();
-    xhr.open(
-      'GET',
-      settings.data || './data.json',
-      true
+    // XXX: tricky code path (for now)
+    getWordsJSON(
+      function () {
+        getPhrasesJSON(callback);
+      }
     );
+  };
+
+  var getWordsJSON = function (callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', settings.wordsJSON || './words.json', true);
+    xhr.responseType = 'json';
+    xhr.overrideMimeType("application/json; charset=utf-8");
     xhr.onreadystatechange = function(ev) {
       if (xhr.readyState !== 4) return;
-      try {
-        jsonData = JSON.parse(xhr.responseText);
-      } catch (e) {}
-      if (!jsonData) {
-        debug('JSZhuYing: JSON data failed to load.');
+      if (typeof xhr.response !== 'object') {
+        debug('JSZhuYing: Failed to load words.json.');
+        return;
+      }
+      jsonData = {};
+      for (var s in xhr.response) {
+        jsonData[s] = xhr.response[s];
+      }
+      xhr = null;
+
+      callback();
+    };
+    xhr.send(null);
+  };
+
+  var getPhrasesJSON = function (callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', settings.phrasesJSON || './phrases.json', true);
+    xhr.responseType = 'json';
+    xhr.overrideMimeType("application/json; charset=utf-8");
+    xhr.onreadystatechange = function (ev) {
+      if (xhr.readyState !== 4) return;
+      if (typeof xhr.response !== 'object') {
+        debug('JSZhuYing: Failed to load phrases.json.');
+        return;
+      }
+      for (var s in xhr.response) {
+        jsonData[s] = xhr.response[s];
       }
       xhr = null;
 
@@ -246,7 +281,7 @@ var JSZhuYing = function JSZhuYing(settings) {
       syllables.length,
       /* This callback will be called 2^(n-1) times */
       function(composition) {
-        var str = [], score = 0, start = 0, i = 0,
+        var str = [], start = 0, i = 0,
         next = function() {
           var numOfWord = composition[i];
           if (composition.length === i) return finish();
@@ -266,40 +301,32 @@ var JSZhuYing = function JSZhuYing(settings) {
           n++;
           if (n === (1 << (syllables.length - 1))) {
             cleanCache();
+
+            sentences = sentences.sort(
+              function (a, b) {
+                var scoreA = 0;
+
+                a.forEach(
+                  function(term) {
+                    scoreA += term[1];
+                  }
+                );
+
+                var scoreB = 0;
+                b.forEach(
+                  function(term) {
+                    scoreB += term[1];
+                  }
+                );
+
+                return (scoreB - scoreA);
+              }
+            );
+
             callback(sentences);
           }
         };
         next();
-      }
-    );
-  };
-
-  /*
-  * With series of syllables, return the sentence with highest score
-  *
-  */
-  var getSentenceWithHighestScore = function(syllables, callback) {
-    var theSentence, theScore = -1;
-    return getSentences(
-      syllables,
-      function(sentences) {
-        if (!sentences) return callback(false);
-        sentences.forEach(
-          function(sentence) {
-            var score = 0;
-            sentence.forEach(
-              function(term) {
-                if (term[0].length === 1) score += term[1] / 512; // magic number from rule_largest_freqsum() in libchewing/src/tree.c
-                else score += term[1];
-              }
-            );
-            if (score >= theScore) {
-              theSentence = sentence;
-              theScore = score;
-            }
-          }
-        );
-        return callback(theSentence);
       }
     );
   };
@@ -313,11 +340,14 @@ var JSZhuYing = function JSZhuYing(settings) {
       debug('JSZhuYing: database not ready.');
       return callback(false);
     }
+
+    var syllablesStr = syllables.join('-').replace(/ /g , '');
+
     if (jsonData)
-      return callback(jsonData[syllables.join('')] || false);
-    if (typeof cache[syllables.join('')] !== 'undefined')
-      return callback(cache[syllables.join('')]);
-    var req = db.transaction('terms'/*, IDBTransaction.READ_ONLY */).objectStore('terms').get(syllables.join(''));
+      return callback(jsonData[syllablesStr] || false);
+    if (typeof cache[syllablesStr] !== 'undefined')
+      return callback(cache[syllablesStr]);
+    var req = db.transaction('terms'/*, IDBTransaction.READ_ONLY */).objectStore('terms').get(syllablesStr);
     req.onerror = function() {
       debug('JSZhuYing: database read error.');
       return callback(false);
@@ -325,10 +355,10 @@ var JSZhuYing = function JSZhuYing(settings) {
     return req.onsuccess = function(ev) {
       cleanCache();
       if (ev.target.result) {
-        cache[syllables.join('')] = ev.target.result.terms;
+        cache[syllablesStr] = ev.target.result.terms;
         return callback(ev.target.result.terms);
       } else {
-        cache[syllables.join('')] = false;
+        cache[syllablesStr] = false;
         return callback(false);
       }
     };
@@ -342,17 +372,8 @@ var JSZhuYing = function JSZhuYing(settings) {
     return getTerms(
       syllables,
       function(terms) {
-        var theTerm = ['', -1];
         if (!terms) return callback(false);
-        terms.forEach(
-          function(term) {
-            if (term[1] > theTerm[1]) {
-              theTerm = term;
-            }
-          }
-        );
-        if (theTerm[1] !== -1) return callback(theTerm);
-        else return callback(false);
+        return callback(terms[0]);
       }
     );
   };
@@ -372,7 +393,6 @@ var JSZhuYing = function JSZhuYing(settings) {
   return {
     version: version,
     getSentences: getSentences,
-    getSentenceWithHighestScore: getSentenceWithHighestScore,
     getTerms: getTerms,
     getTermWithHighestScore: getTermWithHighestScore
   };
@@ -486,6 +506,10 @@ JSZhuYing.Mobi = function(settings) {
     syllablesInBuffer = [''];
     pendingSyllable = ['', '', '', ''];
     firstChoice = '';
+    if (!jszhuying) {
+      jszhuying = JSZhuYing(jszhuyingSettings);
+      return;
+    }
   };
 
   var queue = function(code) {
@@ -510,6 +534,11 @@ JSZhuYing.Mobi = function(settings) {
   };
 
   var next = function() {
+    if (!jszhuying) {
+      jszhuyingSettings.ready = next;
+      jszhuying = JSZhuYing(jszhuyingSettings);
+      return;
+    }
     if (!keypressQueue.length) {
       isWorking = false;
       return;
@@ -699,7 +728,11 @@ JSZhuYing.Mobi = function(settings) {
   var firstChoice = '';
   var keypressQueue = [];
   var isWorking = false;
-  var jszhuying = JSZhuYing(settings.dbOptions);
+  var jszhuyingSettings = {
+    wordsJSON: settings.path + '/words.json',
+    phrasesJSON: settings.path + '/phrases.json'
+  };
+  var jszhuying;
 
   if (!settings)
     settings = {};

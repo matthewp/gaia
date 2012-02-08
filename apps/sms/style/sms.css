@@ -192,7 +192,7 @@ textarea:focus {
 #text-container {
   width: 100%;
   position: absolute;
-  bottom: 13px;
+  bottom: 0;
   background: grey;
   padding: 0 10px;
   -moz-box-sizing: padding-box;
@@ -211,23 +211,10 @@ textarea:focus {
   overflow: hidden;
 }
 
-#throbber {
-  position: absolute;
-  height: 100%;
-  width: 100%;
-  background-color: rgba(0,0,0,0.3);
-  z-index: 1;
-}
-
-#throbber img {
-  margin-top: -moz-calc(50% - 16px);
-  margin-left: -moz-calc(50% - 16px);
-}
-
 
 /* === Conversation view === */
 #conversationView {
-  -moz-transition: left 0.5s ease;
+  -moz-transition: -moz-transform 0.5s ease;
   background-color: white;
   position: absolute;
   width: 100%;
@@ -239,10 +226,10 @@ textarea:focus {
 }
 
 #conversationView.slideIn {
-  left: 0;
+  -moz-transform: translateX(-100%);
 }
 
 #conversationView.slideOut {
-  left: 100%;
+  -moz-transform: translateX(0px);
 }
 

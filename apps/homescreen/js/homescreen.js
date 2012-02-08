@@ -7,6 +7,42 @@ const SHORTCUTS_HEIGHT = 144;
 
 var displayState;
 
+function showSourceViewer(url) {
+  var document = content.document;
+  var viewsource = document.getElementById('appViewsource');
+  if (!viewsource) {
+    var style = '#appViewsource { ' +
+                '  position: absolute;' +
+                '  top: -moz-calc(10%);' +
+                '  left: -moz-calc(10%);' +
+                '  width: -moz-calc(80% - 2 * 15px);' +
+                '  height: -moz-calc(80% - 2 * 15px);' +
+                '  visibility: hidden;' +
+                '  box-shadow: 10px 10px 5px #888;' +
+                '  margin: 15px;' +
+                '  background-color: white;' +
+                '  opacity: 0.92;' +
+                '  color: black;' +
+                '  z-index: 9999;' +
+                '}';
+    document.styleSheets[0].insertRule(style, 0);
+
+    viewsource = document.createElement('iframe');
+    viewsource.id = 'appViewsource';
+    document.body.appendChild(viewsource);
+  }
+  viewsource.style.visibility = 'visible';
+  viewsource.src = 'view-source: ' + url;
+}
+
+function hideSourceViewer() {
+  var viewsource = content.document.getElementById('appViewsource');
+  if (!viewsource)
+    return;
+  viewsource.style.visibility = 'hidden';
+}
+
+
 // Change the display state (off, locked, default)
 function changeDisplayState(state) {
   displayState = state;
@@ -66,7 +102,7 @@ DefaultPhysics.prototype = {
 
     var quick = (e.timeStamp - touchState.startTime < 200);
     var long = (e.timeStamp - touchState.startTime > 2000);
-    var small = Math.abs(diffX) < 10;
+    var small = Math.abs(diffX) < 20;
 
     var flick = quick && !small;
     var tap = !this.moved && small;
@@ -255,7 +291,7 @@ IconGrid.prototype = {
     this.sceneGraph.forHit(
       x, y,
       function(sprite) {
-        Gaia.AppManager.launch(sprite.icon.url);
+        Gaia.WindowManager.launch(sprite.icon.url);
       });
   },
   handleEvent: function(e) {
@@ -276,7 +312,7 @@ IconGrid.prototype = {
       break;
     case 'touchend':
       document.releaseCapture();
-      physics.onTouchEnd(e.touches ? e.touches[0] : e);
+      physics.onTouchEnd(e.changedTouches ? e.changedTouches[0] : e);
       break;
     case 'resize':
       var canvas = this.canvas;
@@ -314,7 +350,7 @@ NotificationScreen.prototype = {
   onTouchStart: function(e) {
     this.startX = e.pageX;
     this.startY = e.pageY;
-    this.onTouchMove({ pageY: e.pageY + 20 });
+    this.onTouchMove({ pageY: e.pageY + 32 });
   },
   onTouchMove: function(e) {
     var dy = -(this.startY - e.pageY);
@@ -384,7 +420,7 @@ NotificationScreen.prototype = {
       this.active = false;
 
       document.releaseCapture();
-      this.onTouchEnd(evt.touches ? evt.touches[0] : evt);
+      this.onTouchEnd(evt.changedTouches ? evt.changedTouches[0] : evt);
       break;
     default:
       return;
@@ -396,15 +432,36 @@ NotificationScreen.prototype = {
 
 function LockScreen(overlay) {
   this.overlay = overlay;
+
   var events = [
     'touchstart', 'touchmove', 'touchend'
   ];
   events.forEach((function(evt) {
     overlay.addEventListener(evt, this, true);
   }).bind(this));
+
+  window.addEventListener('sleep', this);
+  this.update(function fireHomescreenReady() {
+    window.parent.postMessage('homescreenready', '*');
+  });
 }
 
 LockScreen.prototype = {
+  update: function lockscreen_update(callback) {
+    var request = window.navigator.mozSettings.get('lockscreen.enabled');
+    request.addEventListener('success', (function onsuccess(evt) {
+      request.result.value === 'true' ? this.lock(true) : this.unlock(-1, true);
+
+      if (callback)
+        setTimeout(callback, 0);
+    }).bind(this));
+
+    request.addEventListener('error', (function onerror(evt) {
+      this.lock(true);
+      if (callback)
+        setTimeout(callback, 0);
+    }).bind(this));
+  },
   onTouchStart: function(e) {
     this.startX = e.pageX;
     this.startY = e.pageY;
@@ -428,20 +485,33 @@ LockScreen.prototype = {
         this.unlock(dy);
     }
   },
-  unlock: function(direction) {
+  unlock: function(direction, instant) {
     var offset = '100%';
     if (direction < 0)
       offset = '-' + offset;
+
     var style = this.overlay.style;
-    style.MozTransition = '-moz-transform 0.2s linear';
+    style.MozTransition = instant ? '' : '-moz-transform 0.2s linear';
     style.MozTransform = 'translateY(' + offset + ')';
     changeDisplayState('unlocked');
+
+    var unlockEvent = document.createEvent('CustomEvent');
+    unlockEvent.initCustomEvent('unlocked', true, true, null);
+    window.dispatchEvent(unlockEvent);
   },
-  lock: function() {
+  lock: function(instant) {
     var style = this.overlay.style;
-    style.MozTransition = '-moz-transform 0.2s linear';
-    style.MozTransform = 'translateY(0)';
+    if (instant) {
+      style.MozTransition = style.MozTransform = '';
+    } else {
+      style.MozTransition = '-moz-transform 0.2s linear';
+      style.MozTransform = 'translateY(0)';
+    }
     changeDisplayState('locked');
+
+    var lockEvent = document.createEvent('CustomEvent');
+    lockEvent.initCustomEvent('locked', true, true, null);
+    window.dispatchEvent(lockEvent);
   },
   handleEvent: function(e) {
     hideSourceViewer();
@@ -455,8 +525,13 @@ LockScreen.prototype = {
       this.onTouchMove(e.touches ? e.touches[0] : e);
       break;
     case 'touchend':
-      this.onTouchEnd(e.touches ? e.touches[0] : e);
+      this.onTouchEnd(e.changedTouches ? e.changedTouches[0] : e);
       document.releaseCapture();
+      break;
+    case 'sleep':
+      if (!e.detail.enabled)
+        return;
+      this.update();
       break;
     default:
       return;
@@ -466,26 +541,15 @@ LockScreen.prototype = {
 };
 
 function OnLoad() {
-  var lockScreen = new LockScreen(document.getElementById('lockscreen'));
-  var request = window.navigator.mozSettings.get('lockscreen.enabled');
-  request.addEventListener('success', function onsuccess(evt) {
-    if (request.result.value === 'true')
-      lockScreen.lock();
-    else
-      lockScreen.unlock(-1);
-  });
-
-  request.addEventListener('error', function onerror(evt) {
-    lockScreen.lock();
-  });
+  Gaia.lockScreen = new LockScreen(document.getElementById('lockscreen'));
 
   var touchables = [
     document.getElementById('notificationsScreen'),
     document.getElementById('statusbar')
   ];
   new NotificationScreen(touchables);
-
-  var apps = Gaia.AppManager.getInstalledApps(function(apps) {
+  
+  var apps = Gaia.AppManager.loadInstalledApps(function(apps) {
     // XXX this add 5 times the same set of icons
     var icons = [];
     for (var i = 0; i < 5; i++)
@@ -518,7 +582,7 @@ function OnLoad() {
       if (index < 0)
         continue;
 
-      icon.action = 'Gaia.AppManager.launch(\'' + icon.url + '\')';
+      icon.action = 'Gaia.WindowManager.launch(\'' + icon.url + '\')';
       currentShortcuts.splice(index, 1, icon);
     }
 
@@ -528,12 +592,11 @@ function OnLoad() {
       var src = shortcut.icon;
       var action = shortcut.action;
       shortcuts += '<span class="shortcut" onclick="' + action + '">' +
-                   '  <img class="shorcut-image" src="' + src + '"></img>' +
+                   '  <img class="shortcut-image" src="' + src + '"></img>' +
                    '</span>';
     }
     document.getElementById('home-shortcuts').innerHTML = shortcuts;
   });
-  Gaia.AppManager.init();
 
   var pagesContainer = document.getElementById('home-pages');
   document.addEventListener('pagechange', function(evt) {
