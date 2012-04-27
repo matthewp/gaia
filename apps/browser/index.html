@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html manifest="manifest.appcache">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="pragma" content="no-cache">
+    <title>Browser</title>
+
+    <link rel="stylesheet" href="style/browser.css" type="text/css" />
+    <script type="text/javascript" src="js/browser.js"></script>
+  </head>
+
+  <body>
+    <menu type="toolbar" id="toolbar-start">
+      <form id="url-bar">
+        <input type="url" id="url-input" value="http://www.google.com/m"></input>
+        <input type="image" id="url-button" src="style/images/go.png"></input>
+      </form>
+    </menu>
+    <iframe id="browser-content" mozbrowser>
+    </iframe>
+
+    <div id="shade" class="hidden"></div>
+    <menu type="toolbar" id="toolbar-end">
+      <button type="button" value="" id="back-button" alt="Back" title="" disabled="true"></button>
+      <button type="button" value="" id="forward-button" alt="Forward" title="" disabled="true"></button>
+  </body>
+
+</html>

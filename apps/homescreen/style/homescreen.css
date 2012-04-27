@@ -1,593 +1,176 @@
-html, body {
+@font-face {
+  font-family: 'Open Sans';
+  src: url('fonts/Open-Sans.woff');
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  font-weight: bold;
+  src: url('fonts/Open-Sans-Bold.woff');
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  font-weight: 600;
+  src: url('fonts/Open-Sans-Semibold.woff');
+}
+
+body {
   width: 100%;
   height: 100%;
   margin: 0px;
   padding: 0px;
-  background: #222;
-  font-family: "Roboto", sans-serif;
-  font-size: 16px;
   overflow: hidden;
-}
-
-@font-face {
-  font-family: Roboto;
-  src: url('fonts/Roboto-Regular.ttf');
-}
-@font-face {
-  font-family: Roboto;
-  font-weight: bold;
-  src: url('fonts/Roboto-Bold.ttf');
-}
-@font-face {
-  font-family: Roboto;
-  font-style: italic;
-  src: url('fonts/Roboto-Italic.ttf');
-}
-@font-face {
-  font-family: Roboto;
-  font-weight: bold;
-  font-style: italic;
-  src: url('fonts/Roboto-BoldItalic.ttf');
-}
-
-#screen {
-  position: absolute;
-  overflow: hidden;
-  width: 100%;
-  height: 100%;
-  background: hsl(0,0%,40%) url(images/noise.png) 2%;
-}
-
-/*
- * Simulate a common device-screen size on large monitors, for testing
- * on desktops/laptops.  1300px is just wider than the widest tablet
- * screen on the market today.
- */
-@media all and (min-width: 1300px) {
-  #screen {
-    max-width: 480px;
-    max-height: 800px;
-  }
-}
-
-#lockscreen {
-  position: absolute;
-  z-index: 10000;
-  top: 0px;
-  width: -moz-calc(100%);
-  height: -moz-calc(100%);
+  font-family: 'Open Sans Semibold', sans-serif;
   color: white;
-  overflow: hidden;
-  background-color: #222;
-  background-image: url(images/logo.png), url('images/noise.png');
-  background-repeat: no-repeat, repeat;
-  background-position: 50% 15%, 0 0;
-}
-
-#lockscreen > * {
-  padding-left: 5%;
-  pointer-events: none;
-  color: #aaa;
-  text-shadow: 0 0 3px hsla(0,0%,0%,.5);
-}
-
-#lockscreen > #status {
-  display: -moz-box;
-  -moz-box-orient: horizontal;
-  width: -moz-calc(100% - 4px);
-  height: 20px;
-  padding: 2px;
-}
-
-#lockscreen > #status > #padding {
-  -moz-box-flex: 1;
-}
-
-#lockscreen > #clock {
-  position: absolute;
-  bottom: -moz-calc(5%);
-  font-size: 58px;
-}
-
-#lockscreen > #clock > *[data-format*="%b"] {
-  font-size: 100px;
-}
-
-#lockscreen > #notifications {
-  position: absolute;
-  bottom: 2%;
-}
-
-#lockscreen > #notifications > * {
-  display: inline-block;
-}
-
-#notificationsScreen {
-  position: absolute;
-  z-index: 9998;
-  top: -moz-calc(-100% + 74px);
-  width: -moz-calc(100%);
-  height: -moz-calc(100% - 37px);
-  background-color: #444;
-  background: hsl(0, 0%, 53%);
-}
-
-#notificationsScreen > #grippy {
-  position: absolute;
-  bottom: 0;
-  width: 100%;
-  height: 30px;
-
-  border-bottom: 1px solid hsl(210, 2%, 30%);
-  border-top: 1px solid hsl(210, 2%, 30%);
-
-  background: url(images/grippy.png) no-repeat 50% 50%, -moz-linear-gradient(top, hsl(0, 0%, 53%) 1%, hsl(0, 0%, 33%) 100%);
+  font-size: 15px;
 }
 
 #home {
-  position: absolute;
-  top: 37px;
-  width: -moz-calc(100%);
-  height: -moz-calc(100% - 37px);
-  border-top: 1px solid hsla(0,0%,60%,0.6);
-}
-
-#home-menu {
-  height: 140px;
-
-  box-shadow: inset 0 0 4px black;
-  background: hsla(0,0%,5%,0.3) url(images/noise.png) 2%;
-}
-
-#home-pages {
-  position: relative;
-  top: -10px;
   width: 100%;
-  text-align: center;
-}
-
-.home-page {
-  position: relative;
-  top: -10px;
-  background-image: url(images/paging.png);
-}
-
-.home-page[data-active] {
-  background-position: 30px 0;
-}
-
-.home-page > div {
-  display: inline-block;
-  width: 30px;
-  height: 26px;
-  visibility: hidden;
-}
-
-#home-shortcuts {
-  text-align: center;
-}
-
-.shortcut > img {
-  width: 110px;
-  height: 110px;
-  margin-top: -15px;
-}
-
-#windows {
-  position: absolute;
-  left: 0px;
-  top: 37px;
-  width: 100%;
-  height: 0;
+  height: 100%;
   overflow: hidden;
-}
-
-#windows.active {
-  height: -moz-calc(100% - 37px);
-  overflow: visible;
-}
-
-iframe.appWindow {
   position: absolute;
+  top: 0;
+  left: 0;
+
+  border-radius: 8px;
   background-color: #000;
-  border: 0;
-  margin: 0;
-  padding: 0;
-  overflow: auto;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  display: none;
+  background-attachment: fixed;
+  background-clip: border-box;
+  background-image: url(backgrounds/default.png);
+  background-origin: padding-box;
+  background-position: center center;
+  background-repeat: no-repeat;
 }
 
-iframe.appWindow.active {
-  display: block;
-}
-
-div.windowSprite {
+#apps {
   position: absolute;
-  top: 37px;
-  left: 0;
-  z-index: 999999;
-  -moz-transform-origin: center bottom;
-  -moz-transform: scale(0);
-  -moz-transition: all 0.5s ease;
+  top: 0;
+  margin-top: 40px;
+
+  /* height = -margin-top +100% - dots.height - notifications.height */
+  height: -moz-calc(-40px + 100% - 14px - 80px);
+  width: 100%;
 }
 
-div.windowSprite.active {
-  -moz-transform: scale(1);
+#dots {
+  position: absolute;
+  bottom: 90px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  width: 100%;
 }
 
-#statusbar {
-  display: -moz-box;
-  overflow: hidden;
+.page {
+  position: absolute;
+  left: 42px;
+  top: 0px;
+  width: -moz-calc(100% - 42px);
+}
+
+.icon {
   position: relative;
-  z-index: 9999;
-  -moz-box-orient: horizontal;
+  float: left;
 
-  width: -moz-calc(100% - 4px);
-  height: 31px;
-  border-top: 1px solid hsl(210, 2%, 56%);
-  border-bottom: 1px solid hsl(210, 2%, 20%);
-  padding: 2px;
-
-  color: #fff;
-  background: -moz-linear-gradient(top, hsl(0, 0%, 53%) 1%, hsl(0, 0%, 33%) 100%);
+  width: 128px;
+  height: 192px;
+  background-color: #222;
+  background-position: 8px 8px;
+  background-repeat: no-repeat;
+  background-color: #222;
+  border-radius: 5px;
+  margin-right: 4px;
+  margin-bottom: 4px;
+  overflow: hidden;
 }
 
-#statusbar > * {
-  -moz-box-flex: 0;
+.icon > * {
   pointer-events: none;
 }
 
-#statusbar > #padding {
-  -moz-box-flex: 1;
-}
-
-#statusbar > #titlebar {
-  text-shadow: 0 0 3px hsla(0,0%,0%,.5);
-  line-height: 31px;
-  font-size: 18px;
-  margin: 0 4px;
-}
-
-#statusbar .time {
-  text-shadow: 0 0 3px hsla(0,0%,0%,.5);
-  line-height: 31px;
-  font-size: 18px;
-  margin: 0 4px;
-}
-
-.battery {
-  float:right;
-  margin: 8px 3px;
-  padding: 4px 6px 4px 4px;
-  width: 29px;
-  background: url(images/battery-main.png);
-  background-repeat: no-repeat;
-  background-size: 29px 16px;
-}
-
-.battery > #fuel {
-  height: 8px;
-	background-image: -moz-linear-gradient(top, #b9fd00, #8fc400);
-}
-
-.battery > #fuel.low {
-  background-image: -moz-linear-gradient(top, lightyellow 10%, yellow 80%, gold);
-}
-
-.battery > #fuel.critical {
-  background-image: -moz-linear-gradient(top, lightcoral 10%, red 80%, darkred);
-}
-
-.battery > #fuel.charging {
-  background-image: -moz-linear-gradient(top, #b9fd00, #8fc400);
-  -moz-animation-duration: 3s;
-  -moz-animation-name: batteryCharging;
-  -moz-animation-iteration-count: infinite;
-  -moz-animation-timing-function: linear;
-}
-
-@-moz-keyframes batteryCharging {
-  from {
-    width: 0;
-  }
-  to {
-    width: 19px;
-  }
-}
-.battery > #charging {
-  height: 8px;
-  width: 18px;
-  background-image: url(images/battery-charging.png);
-  background-repeat: no-repeat;
-  background-size: 18px 8px;
-  position: absolute;
-  margin: 8px 3px;
-  top: 7px;
-}
-
-#taskManager {
-  background-color: rgba(0, 0, 0, 0.8);
-  opacity: 0;
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  -moz-transform: scale(0);
-  -moz-transition: all 0.4s ease;
-  -moz-user-select: none;
-}
-
-#taskManager.active {
-  opacity: 1;
-  -moz-transform: scale(1);
-}
-
-#taskManager ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-#taskManager li {
-  background-color: #00f;
+.icon > div {
   display: inline-block;
-  width: 100%;
-  height: 100%;
-  margin: 0 -25%;
-  position: relative;
-  -moz-transform: scale(0.4);
+
+  width: 120px;
+  height: 120px;
 }
 
-#taskManager li:first-child {
-  margin-left: 50%;
-}
-
-#taskManager li:last-child {
-  margin-right: 50%;
-}
-
-#taskManager li > a {
-  background: url('images/close.png') no-repeat;
-  display: block;
-  width: 32px;
-  height: 32px;
-  position: absolute;
-  top: -16px;
-  right: -16px;
-  -moz-transform: scale(2.5);
-}
-
-#taskManager li > h1 {
-  position: absolute;
-  top: 100%;
-  width: 100%;
-  text-align: center;
-  color: #fff;
-  font-size: 2em;
-  text-shadow: #000 0 2px 1px;
-}
-
-#keyboard {
-  position: absolute;
-  z-index: 9997;
-  bottom: 0;
-  height: auto;
-  overflow: visible;
-  background-color: #36373b;
-  width: -moz-calc(100%);
-  -moz-transition: height 0.2s ease;
-}
-
-#keyboard[data-hidden] {
-  height: 0;
-}
-
-#keyboard-candidate-panel {
-  height: 64px;
-  overflow: auto;
-  white-space: nowrap;
-  color: black;
-  background: rgb(176, 174, 168);
-  border-top: 1px solid #e8e8ff;
-  border-bottom: 1px solid #808098;
-  display: none;
-}
-#keyboard-candidate-panel.show {
-  display: block;
-}
-#keyboard-candidate-panel.full {
-  display: block;
-  position: absolute;
-  white-space: normal;
-  bottom: 0;
-  height: -moz-calc(100%);
-  width: 100%;
-  border: none;
-}
-#keyboard-candidate-panel.full span {
-  border-top: 1px solid #e8e8ff;
-  border-bottom: 1px solid #808098;
-}
-
-#keyboard-candidate-panel span {
-  border-left: 1px solid #e8e8ff;
-  border-right: 1px solid #808098;
-  font-size: 32px;
-  line-height: 60px;
-  min-width: 60px;
-  display: inline-block;
-  height: 64px;
-  padding: 0 10px;
-  text-align: center;
-  background: -moz-linear-gradient(top, rgb(191,191,183) 10%, rgb(161,158,153) 90%);
-}
-
-#keyboard-candidate-panel-toggle-button {
-  border-left: 1px solid #e8e8ff;
-  border-right: 1px solid #808098;
-  position: absolute;
-  font-size: 32px;
-  line-height: 60px;
-  right: 0;
-  top: 1px;
-  text-align: center;
-  box-shadow: -4px 0 5px -5px black;
-  width: 60px;
-  height: 64px;
-  color: black;
-  background: -moz-linear-gradient(top, rgb(191,191,183) 10%, rgb(161,158,153) 90%);
-  display: none;
-}
-
-#keyboard-candidate-panel-toggle-button.full {
-  display: block;
-  border-top: 1px solid #e8e8ff;
-  border-bottom: 1px solid #808098;
-  top: 0;
-}
-
-#keyboard-candidate-panel-toggle-button.show {
-  display: block;
-}
-
-#keyboard-candidate-panel span[data-active],
-#keyboard-candidate-panel-toggle-button[data-active] {
-  background: -moz-linear-gradient(bottom, rgb(191,191,183) 10%, rgb(161,158,153) 90%);
-}
-
-.keyboard-key {
-  display: inline-block;
-  vertical-align: middle;
-  overflow: hidden;
-  text-align: center;
+.icon > .label {
+  padding-top: 36px;
+  padding-left: 8px;
   color: white;
-  font-size: 32px;
-  height: 64px;
-  line-height: 64px;
-  min-width: 0 !important;
-  margin-bottom: 2px;
-  margin-top: 2px;
-  margin-left: 1px;
-  margin-right: 1px;
-  -moz-box-sizing: border-box;
-  padding: 0;
-  border: 1px solid black;
-  border-radius: 5px;
-  background: -moz-linear-gradient(top, rgb(94,97,102) 10%, rgb(64,64,72) 90%);
 }
 
-.keyboard-key[data-active] {
-  color: #ccc;
-  background: -moz-linear-gradient(bottom, rgb(94,97,102) 10%, rgb(64,64,72) 90%);
+.dot {
+  display: inline-block;
+
+  width: 10px;
+  height: 10px;
+  background-color: rgba(255,255,255,0.5);
+  margin-left: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
 }
 
-.keyboard-key-special {
-  background: -moz-linear-gradient(top, #464766 10%, #363748 90%);
+.dot.active {
+  background-color: white;
 }
 
-.keyboard-key-special[data-active] {
-  background: -moz-linear-gradient(bottom, #464766 10%, #363748 90%);
+/* Horizontal orientation height of our current target phones */
+@media all and (max-height: 600px) {
+  #apps {
+    /* height = -margin-top +100% - dots.height - dots.bottom - notifications.height */
+    height: -moz-calc(-24px + 100% - 14px - 14px - 0px);
+    margin-top: 24px;
+  }
+
+  #dots {
+    bottom: 14px;
+  }
 }
 
-.keyboard-key-special.toggle {
-  position: relative;
-}
-.keyboard-key-special.toggle::before {
-  content: '';
-  display: block;
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: 4px;
-  background-color: #333;
-}
-.keyboard-key-special[data-enabled] {
-  text-shadow: 0 0 5px #fff;
-}
-.keyboard-key-special[data-enabled]::before {
-  background-color: #0c0;
-  box-shadow: 0 0 5px #fff;
+/* Vertical orientation of 320x480 phones */
+@media all and (max-width: 320px) {
+  .page {
+    left: 30px;
+    width: -moz-calc(100% - 30px);
+  }
 }
 
-#keyboard-key-highlight {
-  position: absolute;
-  pointer-events: none;
-  top: 0; left: 0;
-  color: #333;
-  background: -moz-linear-gradient(top, rgba(194,197,202,0.9) 10%, rgba(164,164,172,0.9) 90%);
-  font-size: 50px;
-  line-height: 100px;
-  min-width: 70px;
-  padding: 0 5px;
-  height: 100px;
-  margin-top: -110px;
-  text-align: center;
-  border: 1px solid #fff;
-  box-shadow: 0 0 2px #ccc;
-  border-radius: 5px;
-  display: none;
+/* Horizontal orientation height of 800x480 phones */
+@media all and (min-width: 800px) {
+  .page {
+    left: 70px;
+    width: -moz-calc(100% - 70px);
+  }
 }
 
-#keyboard-key-highlight.show {
-  display: block;
+/*
+ * Localization: RTL layout
+ */
+
+*[dir=rtl] .page {
+  left: auto;
+  right: 42px;
 }
 
-#keyboard[data-hidden] #keyboard-key-highlight.show {
-  display: none;
+@media all and (max-width: 320px) {
+  .page {
+    left: auto;
+    right: 30px;
+  }
 }
 
-#keyboard-accent-char-menu {
-  position: absolute;
-  display: none;
-  background-color: #cac9c5;
-  height: 68px;
-  padding: 5px;
-  margin-top: -84px;
-  border-radius: 5px;
-  border: 1px solid #fff;
-  box-shadow: 0 0 2px #ccc;
-  white-space: nowrap;
+*[dir=rtl] .icon {
+  float: right;
+  margin-left: 4px;
+  margin-right: 0;
 }
 
-#keyboard-accent-char-menu.show {
-  display: block;
+*[dir=rtl] .icon > .label {
+  padding-left: 0;
+  padding-right: 8px;
 }
 
-#keyboard-accent-char-menu.menu {
-  height: auto;
-  margin-top: -5px;
-}
-
-#keyboard-accent-char-menu.menu > .keyboard-key {
-  width: auto;
-  display: block;
-  font-size: 24px;
-  line-height: 48px;
-  height: 48px;
-  padding: 0 5px;
-  position: relative;
-}
-
-#keyboard-accent-char-menu.menu > .current-keyboard::before {
-  content: '';
-  display: block;
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: 4px;
-  background-color: #0c0;
-  box-shadow: 0 0 5px #fff;
-}

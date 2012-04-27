@@ -3,94 +3,184 @@
 
 'use strict';
 
-const SHORTCUTS_HEIGHT = 144;
+// The appscreen is the main part of the homescreen: the part that
+// displays icons that launch all of the installed apps.
+var appscreen = new AppScreen();
 
-var displayState;
+/* === AppScreen === */
+function AppScreen() {
+  this.installedApps = {};
 
-function showSourceViewer(url) {
-  var document = content.document;
-  var viewsource = document.getElementById('appViewsource');
-  if (!viewsource) {
-    var style = '#appViewsource { ' +
-                '  position: absolute;' +
-                '  top: -moz-calc(10%);' +
-                '  left: -moz-calc(10%);' +
-                '  width: -moz-calc(80% - 2 * 15px);' +
-                '  height: -moz-calc(80% - 2 * 15px);' +
-                '  visibility: hidden;' +
-                '  box-shadow: 10px 10px 5px #888;' +
-                '  margin: 15px;' +
-                '  background-color: white;' +
-                '  opacity: 0.92;' +
-                '  color: black;' +
-                '  z-index: 9999;' +
-                '}';
-    document.styleSheets[0].insertRule(style, 0);
+  var self = this;
+  navigator.mozApps.mgmt.getAll().onsuccess = function(e) {
+    var apps = e.target.result;
 
-    viewsource = document.createElement('iframe');
-    viewsource.id = 'appViewsource';
-    document.body.appendChild(viewsource);
+    var lastSlash = new RegExp(/\/$/);
+    var currentHost = document.location.toString().replace(lastSlash, '');
+    apps.forEach(function(app) {
+      if (app.origin.replace(lastSlash, '') == currentHost)
+        return;
+      self.installedApps[app.origin] = app;
+    });
+
+    self.build();
+  };
+
+  window.addEventListener('resize', function resize() {
+    self.grid.update();
+  });
+
+  // Listen for app installations and rebuild the appscreen when we get one
+  navigator.mozApps.mgmt.oninstall = function install(event) {
+    var newapp = event.application;
+    self.installedApps[newapp.origin] = newapp;
+    self.build(true);
+  };
+
+  // Do the same for uninstalls
+  navigator.mozApps.mgmt.onuninstall = function uninstall(event) {
+    var newapp = event.application;
+    delete self.installedApps[newapp.origin];
+    self.build(true);
+  };
+}
+
+// Look up the app object for a specified app origin
+AppScreen.prototype.getAppByOrigin = function getAppByOrigin(origin) {
+  return this.installedApps[origin];
+};
+
+// Populate the appscreen with icons. The constructor automatically calls this.
+// But we also call it when new apps are installed or when the locale changes.
+AppScreen.prototype.build = function(rebuild) {
+  var startpage = 0;
+
+  if (rebuild && 'grid' in this) {
+    // Remember the page we're on so that after rebuild we can stay there.
+    startpage = this.grid.currentPage;
+
+    document.body.innerHTML = '<div id="home">' +
+                              '  <div id="apps"></div>' +
+                              '  <div id="dots"></div>' +
+                              '</div>';
   }
-  viewsource.style.visibility = 'visible';
-  viewsource.src = 'view-source: ' + url;
-}
 
-function hideSourceViewer() {
-  var viewsource = content.document.getElementById('appViewsource');
-  if (!viewsource)
-    return;
-  viewsource.style.visibility = 'hidden';
-}
+  // Create the widgets
+  this.grid = new IconGrid('apps');
+  this.grid.dots = new Dots('dots', 'apps');
 
+  // The current language for localizing app names
+  for (var origin in this.installedApps) {
+    var app = this.installedApps[origin];
 
-// Change the display state (off, locked, default)
-function changeDisplayState(state) {
-  displayState = state;
+    // Most apps will host their own icons at their own origin.
+    // If no icon is defined we'll get this undefined one.
+    var icon = 'http://' + document.location.host + '/style/icons/Unknown.png';
+    if (app.manifest.icons) {
+      if ('120' in app.manifest.icons) {
+        icon = app.manifest.icons['120'];
+      } else {
+        // Get all sizes
+        var sizes = Object.keys(app.manifest.icons).map(parseInt);
+        // Largest to smallest
+        sizes.sort(function(x, y) { return y - x; });
+        icon = app.manifest.icons[sizes[0]];
+      }
+    }
 
-  // update clock and battery status (if needed)
-  updateClock();
-  updateBattery();
+    // If the icons is a fully-qualifed URL, leave it alone
+    // (technically, manifests are not supposed to have those)
+    // Otherwise, prefix with the app origin
+    if (icon.indexOf(':') == -1) {
+      // XXX it looks like the homescreen can't load images from other origins
+      // so use the ones from the url host for now
+      // icon = app.origin + icon;
+      icon = 'http://' + document.location.host + icon;
+    }
 
-  // Make sure the source viewer is not visible.
-  if (state == 'locked')
-    hideSourceViewer();
-}
+    // Localize the app name
+    var name = app.manifest.name;
+    var lang = navigator.language;
+    if (app.manifest.locales &&
+        app.manifest.locales[lang] &&
+        app.manifest.locales[lang].name)
+      name = app.manifest.locales[lang].name;
 
-function createPhysicsFor(iconGrid) {
-  return new DefaultPhysics(iconGrid);
-}
+    this.grid.add(icon, name, origin);
+  }
+
+  this.grid.update();
+  this.grid.setPage(startpage);
+};
 
 function DefaultPhysics(iconGrid) {
   this.iconGrid = iconGrid;
   this.moved = false;
-  this.touchState = { active: false, startX: 0, startY: 0 };
+  this.touchState = {
+    active: false,
+    startX: 0,
+    startY: 0,
+    timer: null,
+    initialTarget: null
+  };
 }
+
+// How long do you have to hold your finger still over an icon
+// before triggering an uninstall rather than a launch.
+DefaultPhysics.HOLD_INTERVAL = 1000;
+// How many pixels can you move your finger before a tap becomes
+// a flick or a pan?
+DefaultPhysics.SMALL_MOVE = 20;
+// How long can your finger be on the screen before a flick becomes a pan?
+DefaultPhysics.FLICK_TIME = 200;
 
 DefaultPhysics.prototype = {
   onTouchStart: function(e) {
-    hideSourceViewer();
-
     var touchState = this.touchState;
-    this.moved = false;
     touchState.active = true;
+    touchState.startTime = e.timeStamp;
     touchState.startX = e.pageX;
     touchState.startY = e.pageY;
-    touchState.startTime = e.timeStamp;
+
+    // If this timer triggers and the user hasn't moved their finger
+    // then this is a hold rather than a tap.
+    touchState.timer = window.setTimeout(this.onHoldTimeout.bind(this),
+                                  DefaultPhysics.HOLD_INTERVAL);
+
+    // For tap and hold gestures, we keep track of what icon
+    // the touch started on. Even if it strays slightly into another
+    // nearby icon, the initial touch is probably what the user wanted.
+    touchState.initialTarget = e.target;
   },
+
   onTouchMove: function(e) {
-    var iconGrid = this.iconGrid;
     var touchState = this.touchState;
-    if (touchState.active) {
-      var dx = touchState.startX - e.pageX;
-      if (dx !== 0) {
-        iconGrid.sceneGraph.setViewportTopLeft(
-          iconGrid.currentPage * iconGrid.containerWidth + dx, 0, 0);
-        this.moved = true;
-      }
+
+    // If we move more than a small amount this is not a hold, so
+    // cancel the timer if it is still running
+    if (touchState.timer &&
+        (Math.abs(touchState.startX - e.pageX) > DefaultPhysics.SMALL_MOVE ||
+         Math.abs(touchState.startX - e.pageX) > DefaultPhysics.SMALL_MOVE)) {
+      clearTimeout(touchState.timer);
+      touchState.timer = null;
     }
+
+    if (!touchState.active)
+      return;
+
+    this.iconGrid.pan(-(touchState.startX - e.pageX));
+    e.stopPropagation();
   },
+
   onTouchEnd: function(e) {
     var touchState = this.touchState;
+
+    // If the timer hasn't triggered yet, cancel it before it does
+    if (touchState.timer) {
+      clearTimeout(touchState.timer);
+      touchState.timer = null;
+    }
+
     if (!touchState.active)
       return;
     touchState.active = false;
@@ -99,229 +189,291 @@ DefaultPhysics.prototype = {
     var endX = e.pageX;
     var diffX = endX - startX;
     var dir = (diffX > 0) ? -1 : 1;
+    if (document.dir == 'rtl')
+      dir = -dir;
 
-    var quick = (e.timeStamp - touchState.startTime < 200);
-    var long = (e.timeStamp - touchState.startTime > 2000);
-    var small = Math.abs(diffX) < 20;
+    var quick = (e.timeStamp - touchState.startTime <
+                 DefaultPhysics.FLICK_TIME);
+    var small = Math.abs(diffX) <= DefaultPhysics.SMALL_MOVE;
 
     var flick = quick && !small;
-    var tap = !this.moved && small;
+    var tap = small;
     var drag = !quick;
 
     var iconGrid = this.iconGrid;
     var currentPage = iconGrid.currentPage;
     if (tap) {
-      iconGrid.tap(currentPage * iconGrid.containerWidth + startX,
-                   touchState.startY);
+      iconGrid.tap(touchState.initialTarget);
+      iconGrid.setPage(currentPage, 0);
+      return;
     } else if (flick) {
-      iconGrid.setPage(currentPage + dir, 200);
-    } else {
-      if (Math.abs(diffX) < this.containerWidth / 2)
-        iconGrid.setPage(currentPage, 200);
+      iconGrid.setPage(currentPage + dir, 0.2);
+    } else { // drag
+      if (Math.abs(diffX) < window.innerWidth / 2)
+        iconGrid.setPage(currentPage, 0.2);
       else
-        iconGrid.setPage(currentPage + dir, 200);
+        iconGrid.setPage(currentPage + dir, 0.2);
     }
+    e.stopPropagation();
+  },
+
+  // Triggered if the user holds their finger on the screen for
+  // DefaultPhysics.HOLD_INTERVAL ms without moving more than
+  // DefaultPhyiscs.SMALL_MOVE pixels horizontally or vertically
+  onHoldTimeout: function() {
+    var touchState = this.touchState;
+    touchState.timer = null;
+    touchState.active = false;
+    this.iconGrid.hold(touchState.initialTarget);
   }
 };
 
-function Icon(iconGrid, index) {
-  this.iconGrid = iconGrid;
-  this.index = index;
-  this.label = '';
-  this.url = '';
+var Mouse2Touch = {
+  'mousedown': 'touchstart',
+  'mousemove': 'touchmove',
+  'mouseup': 'touchend'
+};
+
+var Touch2Mouse = {
+  'touchstart': 'mousedown',
+  'touchmove': 'mousemove',
+  'touchend': 'mouseup'
+};
+
+var ForceOnWindow = {
+  'touchmove': true,
+  'touchend': true
+};
+
+function AddEventHandlers(target, listener, eventNames) {
+  for (var n = 0; n < eventNames.length; ++n) {
+    var name = eventNames[n];
+    target = ForceOnWindow[name] ? window : target;
+    name = Touch2Mouse[name] || name;
+    target.addEventListener(name, {
+      handleEvent: function(e) {
+        if (Mouse2Touch[e.type]) {
+          var original = e;
+          e = {
+            type: Mouse2Touch[original.type],
+            target: original.target,
+            touches: [original],
+            preventDefault: function() {
+              original.preventDefault();
+            }
+          };
+          e.changedTouches = e.touches;
+        }
+        return listener.handleEvent(e);
+      }
+    }, true);
+  }
 }
 
-Icon.prototype = {
-  update: function(img, label, url) {
-    this.label = label;
-    this.url = url;
-    var iconGrid = this.iconGrid;
-    var iconWidth = iconGrid.iconWidth;
-    var iconHeight = iconGrid.iconHeight;
-    var border = iconGrid.border;
-    var sprite = this.sprite;
-    var createSprite = !sprite;
-    if (createSprite) {
-      var sceneGraph = iconGrid.sceneGraph;
-      sprite = new Sprite(iconWidth, iconHeight);
-      sprite.icon = this;
-      this.sprite = sprite;
-    }
-    var ctx = sprite.getContext2D();
-    ctx.drawImage(img, iconWidth * border, iconHeight * border,
-                  iconWidth * (1 - border * 2),
-                  iconHeight * (1 - border * 2));
-    ctx.font = Math.floor(iconHeight * border * 0.6) + 'pt Roboto, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'white';
-    ctx.textBaseline = 'top';
-    ctx.fillText(label, iconWidth / 2, iconHeight - iconHeight * border,
-                 iconWidth * 0.9);
-    if (createSprite)
-      sceneGraph.add(sprite);
-    this.reflow();
-  },
-  // return the X coordinate of the top left corner of a slot
-  slotLeft: function() {
-    var iconGrid = this.iconGrid;
-    return iconGrid.itemBoxWidth * (this.index % iconGrid.columns);
-  },
-  // return the Y coordinate of the top left corner of a slot
-  slotTop: function() {
-    var iconGrid = this.iconGrid;
-    var slot = this.index % iconGrid.itemsPerPage;
-    return Math.floor(slot / iconGrid.columns) * iconGrid.itemBoxHeight;
-  },
-  reflow: function(duration) {
-    var sprite = this.sprite;
-    if (!sprite)
-      return;
-    var iconGrid = this.iconGrid;
-    var index = this.index;
-    var itemsPerPage = iconGrid.itemsPerPage;
-    var page = Math.floor(index / iconGrid.itemsPerPage);
-    sprite.setPosition(page * iconGrid.containerWidth + this.slotLeft(),
-                       this.slotTop(),
-                       duration);
-    sprite.setScale(1, duration);
-
-    var evt = document.createEvent('CustomEvent');
-    evt.initCustomEvent('pagereflow', true, false, iconGrid.getLastPage() + 1);
-    document.dispatchEvent(evt);
+function RemoveEventHandlers(target, listener, eventNames) {
+  for (var n = 0; n < eventNames.length; ++n) {
+    var name = eventNames[n];
+    target = ForceOnWindow[name] ? window : target;
+    name = Touch2Mouse[name] || name;
+    target.removeEventListener(name, listener);
   }
-};
+}
 
-function IconGrid(canvas, iconWidth, iconHeight, border) {
-  this.canvas = canvas;
-
-  this.iconWidth = iconWidth;
-  this.iconHeight = iconHeight;
-  this.sceneGraph = new SceneGraph(canvas);
-  this.border = border || 0.1;
+function IconGrid(containerId) {
+  this.containerId = containerId;
+  this.container = document.getElementById(containerId);
   this.icons = [];
   this.currentPage = 0;
-  this.physics = createPhysicsFor(this);
-
-  // update the layout state
-  this.reflow(canvas.width, canvas.height, 0);
+  this.physics = new DefaultPhysics(this);
 
   // install event handlers
-  var events = [
-    'touchstart', 'touchmove', 'touchend',
-    'contextmenu'
-  ];
-  events.forEach((function(evt) {
-    canvas.addEventListener(evt, this, true);
-  }).bind(this));
-  window.addEventListener('resize', this, true);
+  var events = ['touchstart', 'touchmove', 'touchend'];
+  AddEventHandlers(this.container, this, events);
 }
 
 IconGrid.prototype = {
-  add: function(src, label, url) {
-    // Create the icon in the icon grid
+  add: function(iconUrl, label, action) {
     var icons = this.icons;
-    var icon = new Icon(this, this.icons.length);
+    var icon = { iconUrl: iconUrl, label: label, action: action };
     icon.index = icons.length;
     icons.push(icon);
-    // Load the image, sprite will be created when image load is complete
-    var img = document.createElement('img');
-    img.setAttribute('crossorigin', 'anonymous');
-    img.src = src;
-    img.label = label;
-    img.url = url;
-    img.icon = icon;
-    img.onload = function() {
-      // Update the icon (this will trigger a reflow and a repaint)
-      var icon = this.icon;
-      icon.update(this, this.label, this.url);
-    }
-    return icon;
   },
+
   remove: function(icon) {
     this.icons.splice(icon.index);
-    if (icon.sprite)
-      sceneGraph.remove(icon.sprite);
   },
+
   // reflow the icon grid
-  reflow: function(width, height, duration) {
-    // first recalculate all the layout information
-    this.containerWidth = width;
-    this.containerHeight = height;
-    this.panelWidth = this.containerWidth;
-    this.pageIndicatorWidth = this.containerWidth;
-    this.pageIndicatorHeight =
-      Math.min(Math.max(this.containerHeight * 0.7, 14), 20);
-    this.panelHeight = this.containerHeight - this.pageIndicatorHeight;
-    this.columns = Math.floor(this.panelWidth / this.iconWidth);
-    this.rows = Math.floor(this.panelHeight / this.iconHeight);
-    this.itemsPerPage = this.rows * this.columns;
-    this.itemBoxWidth = Math.floor(this.panelWidth / this.columns);
-    this.itemBoxHeight = Math.floor(this.panelHeight / this.rows);
-
-    // switch to the right page
-    this.setPage(this.currentPage, duration);
-
-    // now reflow all the icons
+  update: function() {
+    var container = this.container;
     var icons = this.icons;
-    for (var n = 0; n < icons.length; ++n)
-      icons[n].reflow(duration);
-  },
-  // get last page with an icon
-  getLastPage: function() {
-    var itemsPerPage = this.itemsPerPage;
-    var lastPage =
-      Math.floor((this.icons.length + (itemsPerPage - 1)) / itemsPerPage);
-    if (lastPage > 0)
-      --lastPage;
-    return lastPage;
-  },
-  // switch to a different page
-  setPage: function(page, duration) {
-    page = Math.max(0, page);
-    page = Math.min(page, this.getLastPage());
-    this.sceneGraph.setViewportTopLeft(this.containerWidth * page, 0, duration);
-    this.currentPage = page;
 
-    var event = document.createEvent('CustomEvent');
-    event.initCustomEvent('pagechange', true, false, page + 1);
-    document.dispatchEvent(event);
+    // get pages divs
+    var pages = [];
+    var rule = '#' + this.containerId + '> .page';
+    var children = document.querySelectorAll(rule);
+    for (var n = 0; n < children.length; n++) {
+      var element = children[n];
+      pages[element.id] = element;
+    }
+
+    // get icon divs
+    var iconDivs = [];
+
+    rule = '#' + this.containerId + '> .page > .icon';
+    children = document.querySelectorAll(rule);
+    for (var n = 0; n < children.length; n++) {
+      var element = children[n];
+      iconDivs[element.id] = element;
+    }
+
+    // issue #723 - The calculation of the width/height of the icons
+    // should be dynamic and not hardcoded like that. The reason why it
+    // it is done like that at this point is because there is no icon
+    // when the application starts and so there is nothing to calculate
+    // against.
+    container.style.minHeight = container.style.maxHeight = '';
+    var iconHeight = 196;
+    var iconWidth = 132;
+
+    var rect = container.getBoundingClientRect();
+    var rows = Math.max(1, Math.floor(rect.height / iconHeight));
+    var columns = Math.max(1, Math.floor(rect.width / iconWidth));
+
+    var targetHeight = iconHeight * rows + 'px';
+    container.style.minHeight = container.style.maxHeight = targetHeight;
+
+    // adjust existing pages and create new ones as needed
+    var itemsPerPage = rows * columns;
+    var pageCount = Math.ceil(icons.length / itemsPerPage);
+    for (var n = 0; n < pageCount; n++) {
+      var page = pages[n];
+      if (page)
+        continue;
+
+      page = document.createElement('div');
+      page.id = n;
+      page.className = 'page';
+      container.appendChild(page);
+
+      pages[n] = page;
+    }
+
+    // remove pages we don't need
+    for (var key in pages) {
+      if (key >= pageCount) {
+        container.removeChild(pages[key]);
+        pages[key] = null;
+      }
+    }
+
+
+    // adjust existing icons and create new ones as needed
+    var iconsCount = icons.length;
+    for (var n = 0; n < iconsCount; ++n) {
+      var icon = icons[n];
+
+      var iconDiv = iconDivs[n];
+      if (!iconDiv) { // missing icon
+        iconDiv = document.createElement('div');
+        iconDiv.id = n;
+        iconDiv.className = 'icon';
+        iconDiv.style.backgroundImage = 'url("' + icon.iconUrl + '")';
+        iconDiv.dataset.url = icon.action;
+
+        var centerDiv = document.createElement('div');
+        centerDiv.className = 'img';
+        iconDiv.appendChild(centerDiv);
+
+        var labelDiv = document.createElement('div');
+        labelDiv.className = 'label';
+        iconDiv.appendChild(labelDiv);
+
+        if (labelDiv.textContent != icon.label)
+          labelDiv.textContent = icon.label;
+
+        iconDivs[n] = iconDiv;
+      }
+
+      var pageOfIcon = Math.floor(n / itemsPerPage);
+      pages[pageOfIcon].appendChild(iconDiv);
+    }
+
+    // remove icons we don't need
+    for (var key in iconDivs) {
+      if (key > iconsCount) {
+        iconDivs[key].parentNode.removeChild(iconDivs[key]);
+        iconDivs[key] = null;
+      }
+    }
+
+    // update paginator, if we have one
+    var dots = this.dots;
+    if (dots)
+      dots.update(this.currentPage);
   },
-  // process a computed tap at the given scene-graph coordinates
-  tap: function(x, y) {
-    this.sceneGraph.forHit(
-      x, y,
-      function(sprite) {
-        Gaia.WindowManager.launch(sprite.icon.url);
-      });
+
+  pan: function(x, duration) {
+    var pages = this.container.childNodes;
+    var currentPage = this.currentPage;
+    for (var n = 0; n < pages.length; ++n) {
+      var page = pages[n];
+
+      var calc = (document.dir == 'ltr') ?
+        (n - currentPage) + '00% + ' + x + 'px' :
+        (currentPage - n) + '00% + ' + x + 'px';
+
+      var style = page.style;
+      style.MozTransform = 'translateX(-moz-calc(' + calc + '))';
+      style.MozTransition = duration ? ('all ' + duration + 's ease;') : '';
+    }
+  },
+
+  setPage: function(number, duration) {
+    var pages = this.container.childNodes;
+    if (number < 0)
+      number = 0;
+    if (number >= pages.length)
+      number = pages.length - 1;
+    this.currentPage = number;
+    for (var n = 0; n < pages.length; ++n) {
+      var page = pages[n];
+      var style = page.style;
+      var p = (document.dir == 'ltr') ? (n - number) : (number - n);
+      style.MozTransform = 'translateX(' + p + '00%)';
+      style.MozTransition = duration ? ('all ' + duration + 's ease') : '';
+    }
+    var dots = this.dots;
+    if (dots)
+      dots.update(number);
+  },
+  tap: function(target) {
+    var app = appscreen.getAppByOrigin(target.dataset.url);
+    app.launch();
+  },
+  hold: function(target) {
+    var app = appscreen.getAppByOrigin(target.dataset.url);
+
+    // FIXME: localize this message
+    // FIXME: This could be a simple confirm() (see bug 741587)
+    requestPermission(
+      'Do you want to uninstall ' + app.manifest.name + '?',
+      function() { app.uninstall(); },
+      function() { }
+    );
   },
   handleEvent: function(e) {
     var physics = this.physics;
     switch (e.type) {
     case 'touchstart':
-      this.canvas.setCapture(false);
-      physics.onTouchStart(e.touches ? e.touches[0] : e);
+      physics.onTouchStart(e.touches[0]);
       break;
     case 'touchmove':
-      physics.onTouchMove(e.touches ? e.touches[0] : e);
-      break;
-    case 'contextmenu':
-      var sourceURL = window.document.URL;
-      showSourceViewer(sourceURL);
-      document.releaseCapture();
-      physics.touchState.active = false;
+      physics.onTouchMove(e.touches[0]);
       break;
     case 'touchend':
       document.releaseCapture();
-      physics.onTouchEnd(e.changedTouches ? e.changedTouches[0] : e);
-      break;
-    case 'resize':
-      var canvas = this.canvas;
-      var width = canvas.width = window.innerWidth;
-      // TODO Substract the height of the statusbar
-      var height = canvas.height = window.innerHeight - 37 - SHORTCUTS_HEIGHT;
-      this.sceneGraph.blitter.viewportWidth = width;
-      this.sceneGraph.blitter.viewportHeight = height;
-      this.reflow(width, height, 0);
+      physics.onTouchEnd(e.changedTouches[0]);
       break;
     default:
       return;
@@ -330,363 +482,41 @@ IconGrid.prototype = {
   }
 };
 
-function NotificationScreen(touchables) {
-  this.touchables = touchables;
-  this.attachEvents(this.touchable);
+function Dots(containerId, gridId) {
+  this.containerId = containerId;
+  this.gridId = gridId;
+  this.container = document.getElementById(containerId);
+  this.grid = document.getElementById(gridId);
 }
 
-NotificationScreen.prototype = {
-  get touchable() {
-    return this.touchables[this.locked ? 0 : 1];
-  },
-  get screenHeight() {
-    var screenHeight = this._screenHeight;
-    if (!screenHeight) {
-      screenHeight = this.touchables[0].getBoundingClientRect().height;
-      this._screenHeight = screenHeight;
-    }
-    return screenHeight;
-  },
-  onTouchStart: function(e) {
-    this.startX = e.pageX;
-    this.startY = e.pageY;
-    this.onTouchMove({ pageY: e.pageY + 32 });
-  },
-  onTouchMove: function(e) {
-    var dy = -(this.startY - e.pageY);
-    if (this.locked)
-      dy += this.screenHeight;
-    dy = Math.min(this.screenHeight, dy);
+Dots.prototype = {
+  update: function(current) {
+    var container = this.container;
+    var grid = this.grid;
 
-    var style = this.touchables[0].style;
-    style.MozTransition = '';
-    style.MozTransform = 'translateY(' + dy + 'px)';
-  },
-  onTouchEnd: function(e) {
-    var dy = -(this.startY - e.pageY);
-    var offset = Math.abs(dy);
-    if ((!this.locked && offset > this.screenHeight / 4) ||
-        (this.locked && offset < 10))
-      this.lock();
-    else
-      this.unlock();
-  },
-  unlock: function() {
-    var style = this.touchables[0].style;
-    style.MozTransition = '-moz-transform 0.2s linear';
-    style.MozTransform = 'translateY(0)';
-    this.locked = false;
-  },
-  lock: function(dy) {
-    var style = this.touchables[0].style;
-    style.MozTransition = '-moz-transform 0.2s linear';
-    style.MozTransform = 'translateY(100%)';
-    this.locked = true;
-  },
-  events: [
-    'touchstart', 'touchmove', 'touchend'
-  ],
-  attachEvents: function ns_attachEvents(view) {
-    this.events.forEach((function(evt) {
-      window.addEventListener(evt, this, true);
-    }).bind(this));
-  },
-  detachEvents: function ns_detachEvents() {
-    this.events.forEach((function(evt) {
-      window.removeEventListener(evt, this, true);
-    }).bind(this));
-  },
-  handleEvent: function(evt) {
-    var target = evt.target;
-    switch (evt.type) {
-    case 'touchstart':
-      if (target != this.touchable)
-        return;
-      hideSourceViewer();
-      this.active = true;
+    var numPages = grid.childNodes.length;
 
-      target.setCapture(this);
-      this.onTouchStart(evt.touches ? evt.touches[0] : evt);
-      break;
-    case 'touchmove':
-      if (!this.active)
-        return;
-
-      this.onTouchMove(evt.touches ? evt.touches[0] : evt);
-      break;
-    case 'touchend':
-      if (!this.active)
-        return;
-      this.active = false;
-
-      document.releaseCapture();
-      this.onTouchEnd(evt.changedTouches ? evt.changedTouches[0] : evt);
-      break;
-    default:
-      return;
+    // Add additional dots if needed.
+    while (container.childNodes.length < numPages) {
+      var dot = document.createElement('div');
+      dot.className = 'dot';
+      container.appendChild(dot);
     }
 
-    evt.preventDefault();
+    // Remove excess dots.
+    while (container.childNodes.length > numPages)
+      container.removeChild(container.childNodes[0]);
+
+    // Set active/inactive state.
+    var childNodes = container.childNodes;
+    for (var n = 0; n < numPages; ++n) {
+      var dot = childNodes[n];
+      if (n == current) {
+        dot.classList.add('active');
+      } else {
+        dot.classList.remove('active');
+      }
+    }
   }
 };
-
-function LockScreen(overlay) {
-  this.overlay = overlay;
-
-  var events = [
-    'touchstart', 'touchmove', 'touchend'
-  ];
-  events.forEach((function(evt) {
-    overlay.addEventListener(evt, this, true);
-  }).bind(this));
-
-  window.addEventListener('sleep', this);
-  this.update(function fireHomescreenReady() {
-    window.parent.postMessage('homescreenready', '*');
-  });
-}
-
-LockScreen.prototype = {
-  update: function lockscreen_update(callback) {
-    var request = window.navigator.mozSettings.get('lockscreen.enabled');
-    request.addEventListener('success', (function onsuccess(evt) {
-      request.result.value === 'true' ? this.lock(true) : this.unlock(-1, true);
-
-      if (callback)
-        setTimeout(callback, 0);
-    }).bind(this));
-
-    request.addEventListener('error', (function onerror(evt) {
-      this.lock(true);
-      if (callback)
-        setTimeout(callback, 0);
-    }).bind(this));
-  },
-  onTouchStart: function(e) {
-    this.startX = e.pageX;
-    this.startY = e.pageY;
-    this.moving = true;
-  },
-  onTouchMove: function(e) {
-    if (this.moving) {
-      var dy = -(this.startY - e.pageY);
-      var style = this.overlay.style;
-      style.MozTransition = '';
-      style.MozTransform = 'translateY(' + dy + 'px)';
-    }
-  },
-  onTouchEnd: function(e) {
-    if (this.moving) {
-      this.moving = false;
-      var dy = -(this.startY - e.pageY);
-      if (Math.abs(dy) < window.innerHeight / 4)
-        this.lock();
-      else
-        this.unlock(dy);
-    }
-  },
-  unlock: function(direction, instant) {
-    var offset = '100%';
-    if (direction < 0)
-      offset = '-' + offset;
-
-    var style = this.overlay.style;
-    style.MozTransition = instant ? '' : '-moz-transform 0.2s linear';
-    style.MozTransform = 'translateY(' + offset + ')';
-    changeDisplayState('unlocked');
-
-    var unlockEvent = document.createEvent('CustomEvent');
-    unlockEvent.initCustomEvent('unlocked', true, true, null);
-    window.dispatchEvent(unlockEvent);
-  },
-  lock: function(instant) {
-    var style = this.overlay.style;
-    if (instant) {
-      style.MozTransition = style.MozTransform = '';
-    } else {
-      style.MozTransition = '-moz-transform 0.2s linear';
-      style.MozTransform = 'translateY(0)';
-    }
-    changeDisplayState('locked');
-
-    var lockEvent = document.createEvent('CustomEvent');
-    lockEvent.initCustomEvent('locked', true, true, null);
-    window.dispatchEvent(lockEvent);
-  },
-  handleEvent: function(e) {
-    hideSourceViewer();
-
-    switch (e.type) {
-    case 'touchstart':
-      this.onTouchStart(e.touches ? e.touches[0] : e);
-      this.overlay.setCapture(false);
-      break;
-    case 'touchmove':
-      this.onTouchMove(e.touches ? e.touches[0] : e);
-      break;
-    case 'touchend':
-      this.onTouchEnd(e.changedTouches ? e.changedTouches[0] : e);
-      document.releaseCapture();
-      break;
-    case 'sleep':
-      if (!e.detail.enabled)
-        return;
-      this.update();
-      break;
-    default:
-      return;
-    }
-    e.preventDefault();
-  }
-};
-
-function OnLoad() {
-  Gaia.lockScreen = new LockScreen(document.getElementById('lockscreen'));
-
-  var touchables = [
-    document.getElementById('notificationsScreen'),
-    document.getElementById('statusbar')
-  ];
-  new NotificationScreen(touchables);
-  
-  var apps = Gaia.AppManager.loadInstalledApps(function(apps) {
-    // XXX this add 5 times the same set of icons
-    var icons = [];
-    for (var i = 0; i < 5; i++)
-      for (var n = 0; n < apps.length; ++n)
-        icons.push(apps[n]);
-
-    var screen = document.getElementById('screen');
-    var screenRect = screen.getBoundingClientRect();
-    var screenWidth = screenRect.right - screenRect.left;
-    var screenHeight = screenRect.bottom - screenRect.top;
-    var canvas = document.getElementById('homeCanvas');
-    var width = canvas.width = screenWidth;
-    var height = canvas.height = screenHeight - 37 - SHORTCUTS_HEIGHT;
-
-    var iconGrid = new IconGrid(canvas, 120, 120, 0.2);
-    for (var n = 0; n < icons.length; ++n) {
-      var icon = icons[n];
-      iconGrid.add(icon.icon, icon.name, icon.url);
-    }
-
-    // Create the main shortcuts
-    var reload = {
-      action: 'document.location.reload()',
-      icon: 'style/images/reload.png'
-    };
-    var currentShortcuts = ['Dialer', 'Messages', 'Market', reload];
-    for (var n = 0; n < icons.length; ++n) {
-      var icon = icons[n];
-      var index = currentShortcuts.indexOf(icon.name);
-      if (index < 0)
-        continue;
-
-      icon.action = 'Gaia.WindowManager.launch(\'' + icon.url + '\')';
-      currentShortcuts.splice(index, 1, icon);
-    }
-
-    var shortcuts = '';
-    for (var n = 0; n < currentShortcuts.length; ++n) {
-      var shortcut = currentShortcuts[n];
-      var src = shortcut.icon;
-      var action = shortcut.action;
-      shortcuts += '<span class="shortcut" onclick="' + action + '">' +
-                   '  <img class="shortcut-image" src="' + src + '"></img>' +
-                   '</span>';
-    }
-    document.getElementById('home-shortcuts').innerHTML = shortcuts;
-  });
-
-  var pagesContainer = document.getElementById('home-pages');
-  document.addEventListener('pagechange', function(evt) {
-    var pages = pagesContainer.childNodes;
-    for (var n = 0; n < pages.length; n++)
-      delete pages[n].dataset.active;
-    pages[evt.detail - 1].dataset.active = 'true';
-  });
-
-  document.addEventListener('pagereflow', function(evt) {
-    var pages = '';
-    var pagesCount = evt.detail;
-    for (var n = 0; n < pagesCount; n++) {
-      pages += '<span class="home-page">' +
-               '  <div></div>' +
-               '</span>';
-    }
-    pagesContainer.innerHTML = pages;
-    pagesContainer.firstChild.dataset.active = 'true';
-  });
-
-  var titlebar = document.getElementById('titlebar');
-  window.addEventListener('appopen', function(evt) {
-    titlebar.innerHTML = evt.detail;
-  });
-
-  window.addEventListener('appclose', function(evt) {
-    titlebar.innerHTML = '';
-  });
-}
-
-// Update the clock and schedule a new update if appropriate
-function updateClock() {
-  // If the display is off, there is nothing to do here
-  if (displayState == 'off')
-    return;
-
-  var now = new Date();
-  var match = document.getElementsByClassName('time');
-  for (var n = 0; n < match.length; ++n) {
-    var element = match[n];
-    element.textContent = now.toLocaleFormat(element.dataset.format);
-  }
-
-  // Schedule another clock update when a new minute rolls around
-  var now = new Date();
-  var sec = now.getSeconds();
-  setTimeout(updateClock, (59 - sec) * 1000);
-}
-
-function updateBattery() {
-  var battery = window.navigator.mozBattery;
-  if (!battery)
-    return;
-
-  // If the display is off, there is nothing to do here
-  if (displayState == 'off') {
-    battery.removeEventListener('chargingchange', updateBattery);
-    battery.removeEventListener('levelchange', updateBattery);
-    battery.removeEventListener('statuschange', updateBattery);
-    return;
-  }
-
-  var elements = document.getElementsByClassName('battery');
-  for (var n = 0; n < elements.length; ++n) {
-    var element = elements[n];
-    var fuel = element.children[0];
-    var level = battery.level * 100;
-
-    var charging = element.children[1];
-    if (battery.charging) {
-      charging.hidden = false;
-      fuel.className = 'charging';
-      fuel.style.minWidth = (level / 5.25) + 'px';
-    } else {
-      charging.hidden = true;
-
-      fuel.style.minWidth = fuel.style.width = (level / 5.25) + 'px';
-      if (level <= 10)
-        fuel.className = 'critical';
-      else if (level <= 30)
-        fuel.className = 'low';
-      else
-        fuel.className = '';
-    }
-  }
-
-  // Make sure we will be called for any changes to the battery status
-  battery.addEventListener('chargingchange', updateBattery);
-  battery.addEventListener('levelchange', updateBattery);
-  battery.addEventListener('statuschange', updateBattery);
-}
 

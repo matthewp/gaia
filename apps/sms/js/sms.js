@@ -1,60 +1,37 @@
+/* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
+/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
-// Based on Resig's pretty date
-function prettyDate(time) {
-  var diff = (Date.now() - time) / 1000;
-  var day_diff = Math.floor(diff / 86400);
-
-  if (isNaN(day_diff) || day_diff < 0 || day_diff >= 31)
-    return '';
-
-  return day_diff == 0 && (
-          diff < 60 && 'just now' ||
-          diff < 120 && '1 minute ago' ||
-          diff < 3600 && Math.floor(diff / 60) + ' minutes ago' ||
-          diff < 7200 && '1 hour ago' ||
-          diff < 86400 && Math.floor(diff / 3600) + ' hours ago') ||
-          day_diff == 1 && 'Yesterday' ||
-          day_diff < 7 && day_diff + ' days ago' ||
-          day_diff < 31 && Math.ceil(day_diff / 7) + ' weeks ago';
-}
-
+'use strict';
 
 var MessageManager = {
   getMessages: function mm_getMessages(callback, filter, invert) {
-    // XXX Bug 712809
-    // Until there is a database for mozSms, use a fake GetMessages
-    if (true) {
-      GetMessagesHack(callback, filter, invert);
-      return;
-    }
-
     var request = navigator.mozSms.getMessages(filter, !invert);
 
     var messages = [];
-    request.onsuccess = function() {
-      var result = request.result;
-      if (!result) {
+    request.onsuccess = function onsuccess() {
+      var cursor = request.result;
+      if (!cursor.message) {
         callback(messages);
         return;
       }
 
-      var message = result.message;
-      messages.push(message);
-      result.next();
+      messages.push(cursor.message);
+      cursor.continue();
     };
 
-    request.onerror = function() {
-      alert('Error reading the database. Error code: ' + request.errorCode);
-    }
+    request.onerror = function onerror() {
+      var msg = 'Error reading the database. Error: ' + request.errorCode;
+      console.log(msg);
+    };
   },
 
   send: function mm_send(number, text, callback) {
-    var result = navigator.mozSms.send(number, text);
-    result.onsuccess = function onsuccess(event) {
-      callback(event.message);
+    var req = navigator.mozSms.send(number, text);
+    req.onsuccess = function onsuccess() {
+      callback(req.result);
     };
-    result.onerror = function onerror(event) {
-      console.log("Error sending SMS!");
+
+    req.onerror = function onerror() {
       callback(null);
     };
   },
@@ -64,234 +41,350 @@ var MessageManager = {
   }
 };
 
-
-// Until there is a database to store messages on the device, return
-// a fake list of messages.
-var messagesHack = [];
-(function() {
-  var messages = [
-    {
-      sender: null,
-      receiver: '1-977-743-6797',
-      body: 'Nothing :)',
-      timestamp: Date.now() - 44000000
-    },
-    {
-      sender: '1-977-743-6797',
-      body: 'Hey! What\s up?',
-      timestamp: Date.now() - 50000000
-    }
-  ];
-
-  for (var i = 0; i < 40; i++) {
-    messages.push({
-      sender: '1-488-678-3487',
-      body: 'Hello world!',
-      timestamp: Date.now() - 60000000
-    });
-  }
-
-  messagesHack = messages;
-})();
-var GetMessagesHack = function(callback, filter, invert) {
-  function applyFilter(msgs) {
-    if (!filter)
-      return msgs;
-
-    if (filter.number) {
-      msgs = msgs.filter(function(element, index, array) {
-          return (filter.number && (filter.number == element.sender ||
-                  filter.number == element.receiver));
-      });
-    }
-
-    return msgs;
-  }
-
-  var msg = messagesHack.slice();
-  if (invert)
-    msg.reverse();
-  callback(applyFilter(msg));
-};
-
-// Use a fake send if mozSms is not present
-if (!navigator.mozSms) {
-  MessageManager.send = function mm_send(number, text, callback) {
-    var message = {
-      sender: null,
-      receiver: number,
-      body: text,
-      timestamp: Date.now()
-    };
-    window.setTimeout(function() {
-      callback(message);
-    }, 0);
-  };
-}
-
-var MessageView = {
-  init: function init() {
-    if (navigator.mozSms)
-      navigator.mozSms.addEventListener('received', this);
-    this.showConversations();
-  },
-
-  get conversationView() {
-    delete this.conversationView;
-    return this.conversationView = document.getElementById('conversation');
-  },
-
-  openConversationView: function openConversationView(num) {
-    if (!num)
-      return;
-
-    ConversationView.showConversation(num == '*' ? '' : num);
-
-    var conversationView = document.getElementById('conversationView');
-    conversationView.hidden = false;
-
-    window.setTimeout(function conversationSlideIn() {
-      conversationView.classList.remove('slideOut');
-      conversationView.classList.add('slideIn');
-    }, 100);
-  },
-
+var ConversationListView = {
   get view() {
     delete this.view;
-    return this.view = document.getElementById('messages');
+    return this.view = document.getElementById('msg-conversations-list');
   },
 
-  showConversations: function showConversations() {
+  get searchInput() {
+    delete this.searchInput;
+    return this.searchInput = document.getElementById('msg-search');
+  },
+
+  init: function cl_init() {
+    if (navigator.mozSms)
+      navigator.mozSms.addEventListener('received', this);
+
+    this.searchInput.addEventListener('keyup', this);
+
+    window.addEventListener('hashchange', this);
+
+    this.updateConversationList();
+  },
+
+  updateConversationList: function cl_updateCL(pendingMsg) {
     var self = this;
-    MessageManager.getMessages(function(messages) {
+    /*
+      TODO: Conversation list is always order by contact family names
+      not the timestamp.
+      It should be timestamp in normal view, and order by name while searching
+    */
+    MessageManager.getMessages(function getMessagesCallback(messages) {
+      if (pendingMsg &&
+          (!messages[0] || messages[0].id !== pendingMsg.id))
+        messages.unshift(pendingMsg);
+
       var conversations = {};
-      for (var i = 0; i < messages.length; i++) {
-        var message = messages[i];
-        var sender = message.sender || message.receiver;
-        if (conversations[sender]) {
-          conversations[sender].count++;
-          continue;
+      var request = window.navigator.mozContacts.find({});
+      request.onsuccess = function findCallback() {
+        var contacts = request.result;
+
+        contacts.sort(function contactsSort(a, b) {
+          return a.familyName[0].toUpperCase() > b.familyName[0].toUpperCase();
+        });
+
+        contacts.forEach(function(contact, i) {
+          var num = contact.tel[0];
+          conversations[num] = {
+            'hidden': true,
+            'name': contact.name,
+            'num': num,
+            'body': '',
+            'timestamp': '',
+            'id': parseInt(i)
+          };
+        });
+
+        for (var i = 0; i < messages.length; i++) {
+          var message = messages[i];
+
+          // XXX why does this happen?
+          if (!message.delivery)
+            continue;
+
+          var num = message.delivery == 'received' ?
+                    message.sender : message.receiver;
+
+          var conversation = conversations[num];
+          if (conversation && !conversation.hidden)
+            continue;
+
+          if (!conversation) {
+            conversations[num] = {
+              'hidden': false,
+              'body': message.body,
+              'name': num,
+              'num': num,
+              'timestamp': message.timestamp.getTime(),
+              'id': i
+            };
+          } else {
+            conversation.hidden = false;
+            conversation.timestamp = message.timestamp.getTime();
+            conversation.body = message.body;
+          }
         }
 
-        conversations[sender] = {
-          sender: message.sender,
-          receiver: message.receiver,
-          body: message.body,
-          timestamp: prettyDate(message.timestamp),
-          count: 1
-        };
-      }
-
-      var fragment = '<div class="message" data-num="*">' +
-                     '  <div class="title">New Message</div>' +
-                     '  <div class="content">Write a message</div>' +
-                     '</div>';
-      for (var conversation in conversations) {
-        var msg = self.createNewMessage(conversations[conversation]);
-        fragment += msg;
-      }
-      self.view.innerHTML = fragment;
-
-      window.parent.postMessage('appready', '*');
+        var fragment = '';
+        for (var num in conversations) {
+          var msg = self.createNewConversation(conversations[num]);
+          fragment += msg;
+        }
+        self.view.innerHTML = fragment;
+      };
     }, null);
   },
 
-  createNewMessage: function createNewMessage(msg) {
-    var className = 'class="message ' +
-                    (msg.sender ? 'sender' : 'receiver') + '"';
-
-    var num = (msg.sender || msg.receiver);
-    var dataNum = 'data-num="' + num + '"';
-
-    var contacts = window.navigator.mozContacts.contacts;
-    contacts.forEach(function(contact) {
-      if (contact.phones[0] == num)
-        num = contact.displayName;
-    });
-    var title = num + ' (' + msg.count + ')';
-
-    return '<div ' + className + ' ' + dataNum + '>' +
-           '  <div class="sms">' +
-           '    <div class="title">' + title + '</div>' +
-           '    <div class="content">' +
-           '      <span class="text">' + msg.body + '</span>' +
-           '      <span class="infos">' + msg.timestamp + '</span>' +
-           '    </div>' +
+  createNewConversation: function cl_createNewConversation(conversation) {
+    return '<a href="#num=' + conversation.num + '"' +
+           ' data-name="' + escapeHTML(conversation.name || conversation.num, true) + '"' +
+           ' data-notempty="' + (conversation.timestamp ? 'true' : '') + '"' +
+           ' class="' + (conversation.hidden ? 'hide' : '') + '">' +
+           '  <div class="photo">' +
+           '    <img src="style/images/contact-placeholder.png" />' +
            '  </div>' +
-           '</div>';
+           '  <div class="name">' + escapeHTML(conversation.name) + '</div>' +
+           '  <div class="msg">' + escapeHTML(conversation.body.split('\n')[0]) + '</div>' +
+           (conversation.timestamp ?
+             '  <div class="time" data-time="' + conversation.timestamp + '">' +
+                 prettyDate(conversation.timestamp) + '</div>' : '') +
+           '</a>';
   },
 
-  handleEvent: function handleEvent(evt) {
+  searchConversations: function cl_searchConversations() {
+    var conversations = this.view.children;
+
+    var str = this.searchInput.value;
+    if (!str) {
+      // leaving search view
+      for (var i = 0; i < conversations.length; i++) {
+        var conversation = conversations[i];
+        if (conversation.dataset.notempty === 'true') {
+          conversation.classList.remove('hide');
+        } else {
+          conversation.classList.add('hide');
+        }
+      }
+      return;
+    }
+
+    var reg = new RegExp(str, 'i');
+
+    for (var i = 0; i < conversations.length; i++) {
+      var conversation = conversations[i];
+    try {
+      var dataset = conversation.dataset;
+      if (!reg.test(dataset.num) && !reg.test(dataset.name)) {
+        conversation.classList.add('hide');
+      } else {
+        conversation.classList.remove('hide');
+      }
+  } catch(e) {
+      alert(conversation);
+  }
+    }
+  },
+
+  openConversationView: function cl_openConversationView(num) {
+    if (!num)
+      return;
+
+    window.location.hash = '#num=' + num;
+  },
+
+  handleEvent: function cl_handleEvent(evt) {
     switch (evt.type) {
       case 'received':
-        window.setTimeout(function() {
-          MessageView.showConversations();
-        }, 0);
+        ConversationListView.updateConversationList(evt.message);
         break;
+
+      case 'keyup':
+        this.searchConversations();
+        break;
+
+      case 'hashchange':
+        if (window.location.hash)
+          return;
+        document.body.classList.remove('conversation');
     }
   }
 };
-
 
 var ConversationView = {
   get view() {
     delete this.view;
-    return this.view = document.getElementById('conversation');
+    return this.view = document.getElementById('view-list');
+  },
+
+  get num() {
+    delete this.number;
+    return this.number = document.getElementById('view-num');
+  },
+
+  get title() {
+    delete this.title;
+    return this.title = document.getElementById('view-name');
+  },
+
+  get input() {
+    delete this.input;
+    return this.input = document.getElementById('view-msg-text');
   },
 
   init: function cv_init() {
-    window.addEventListener('keypress', this, true);
     if (navigator.mozSms)
       navigator.mozSms.addEventListener('received', this);
+
+    // click event does not trigger when keyboard is hiding
+    document.getElementById('view-msg-send').addEventListener(
+      'mousedown', this.sendMessage.bind(this));
+
+    this.input.addEventListener('input', this.updateInputHeight.bind(this));
+
+    var windowEvents = ['resize', 'keyup', 'transitionend', 'hashchange'];
+    windowEvents.forEach((function(eventName) {
+      window.addEventListener(eventName, this);
+    }).bind(this));
+
+
+    var num = this.getNumFromHash();
+    if (num)
+      this.showConversation(num);
   },
 
-  showConversation: function cv_showConversation(num) {
-    var contact = document.getElementById('contact');
-    contact.value = num;
+  getNumFromHash: function cv_getNumFromHash() {
+    return (/\bnum=(.+)(&|$)/.exec(window.location.hash) || [])[1];
+  },
 
-    this.filter = num;
-    if (!this.filter) {
-      contact.classList.remove('filtered');
-      this.view.innerHTML = '';
+  scrollViewToBottom: function cv_scrollViewToBottom(animateFromPos) {
+    if (!animateFromPos) {
+      this.view.scrollTop = this.view.scrollHeight;
       return;
     }
-    contact.classList.add('filtered');
 
+    clearInterval(this.viewScrollingTimer);
+    this.view.scrollTop = animateFromPos;
+    this.viewScrollingTimer = setInterval((function scrollStep() {
+      var view = this.view;
+      var height = view.scrollHeight - view.offsetHeight;
+      if (view.scrollTop === height) {
+        clearInterval(this.viewScrollingTimer);
+        return;
+      }
+      view.scrollTop += Math.ceil((height - view.scrollTop) / 2);
+    }).bind(this), 100);
+
+  },
+
+  updateInputHeight: function cv_updateInputHeight() {
+    var input = this.input;
+    input.style.height = null;
+    input.style.height = input.scrollHeight + 8 + 'px';
+
+    var newHeight = input.getBoundingClientRect().height;
+    var bottomToolbarHeight = (newHeight + 32) + 'px';
+    var bottomToolbar =
+      document.getElementById('view-bottom-toolbar');
+
+    bottomToolbar.style.height = bottomToolbarHeight;
+
+    this.view.style.bottom = bottomToolbarHeight;
+    this.scrollViewToBottom();
+  },
+
+  showConversation: function cv_showConversation(num, pendingMsg) {
+    var self = this;
     var view = this.view;
-    var filter = ('SmsFilter' in window) ? new SmsFilter() : {};
-    filter.number = this.filter;
+    var bodyclassList = document.body.classList;
+    var currentScrollTop;
 
-    view.innerHTML = '';
+    if (num !== '*') {
+      var filter = new MozSmsFilter();
+      filter.numbers = [num || ''];
+
+      if (this.filter == num)
+        currentScrollTop = view.scrollTop;
+
+      this.filter = num;
+    } else {
+      /* XXX: gaia issue #483 (New Message dialog design)
+              gaia issue #108 (contact picker)
+      */
+
+      this.num.value = '';
+      this.view.innerHTML = '';
+      bodyclassList.add('conversation-new-msg');
+      bodyclassList.add('conversation');
+      return;
+    }
+
+    bodyclassList.remove('conversation-new-msg');
+
+    var receiverId = parseInt(num);
+
+    var self = this;
+    var options = {filterBy: ['tel'], filterOp: 'contains', filterValue: num};
+    var request = window.navigator.mozContacts.find(options);
+    request.onsuccess = function findCallback() {
+      if (request.result.length == 0)
+        return;
+
+      var contact = request.result[0];
+      self.title.textContent = contact.name;
+      var images = self.view.querySelectorAll('.photo img');
+      for (var i = 0; i < images.length; i++)
+        images[i].src = 'style/images/contact-placeholder.png';
+    };
+
+    this.num.value = num;
+
+    this.title.textContent = num;
+    this.title.num = num;
+
     MessageManager.getMessages(function mm_getMessages(messages) {
+      var lastMessage = messages[messages.length - 1];
+      if (pendingMsg &&
+          (!lastMessage || lastMessage.id !== pendingMsg.id))
+        messages.push(pendingMsg);
+
       var fragment = '';
+
       for (var i = 0; i < messages.length; i++) {
         var msg = messages[i];
+
         var uuid = msg.hasOwnProperty('uuid') ? msg.uuid : '';
         var dataId = 'data-id="' + uuid + '"';
 
-        var dataNum = 'data-num="' + (msg.sender || msg.receiver) + '"';
+        var outgoing = (msg.delivery == 'sent' || msg.delivery == 'sending');
+        var num = outgoing ? msg.receiver : msg.sender;
+        var dataNum = 'data-num="' + num + '"';
 
-        var className = 'class="message ' +
-                        (msg.sender ? 'sender' : 'receiver') + '"';
+        var className = 'class="' + (outgoing ? 'receiver' : 'sender') + '"';
+        if (msg.delivery == 'sending')
+          className = 'class="receiver pending"';
 
-        var time = prettyDate(msg.timestamp);
+        var pic = 'style/images/contact-placeholder.png';
+
+        var body = msg.body.replace(/\n/g, '<br />');
         fragment += '<div ' + className + ' ' + dataNum + ' ' + dataId + '>' +
-                    '  <div class="arrow-left"></div>' +
-                    '  <div>' +
-                    '    <span class="text">' + msg.body + '</span>' +
-                    '    <span class="infos">' + time + '</span>' +
-                    '  </div>' +
+                      '<div class="photo">' +
+                      '  <img src="' + pic + '" />' +
+                      '</div>' +
+                      '<div class="text">' + escapeHTML(body) + '</div>' +
+                      '<div class="time" data-time="' + msg.timestamp.getTime() + '">' +
+                          prettyDate(msg.timestamp) + '</div>' +
                     '</div>';
       }
 
       view.innerHTML = fragment;
-      setTimeout(function() {
-        view.scrollTop = view.scrollHeight;
-      }, 0);
+      self.scrollViewToBottom(currentScrollTop);
+
+      bodyclassList.add('conversation');
     }, filter, true);
   },
 
-  deleteMessage: function deleteMessage(evt) {
+  deleteMessage: function cv_deleteMessage(evt) {
     var uuid = evt.target.getAttribute('data-id');
     if (!uuid)
       return;
@@ -300,87 +393,214 @@ var ConversationView = {
     this.showConversation(this.filter);
   },
 
-  handleEvent: function handleEvent(evt) {
+  handleEvent: function cv_handleEvent(evt) {
     switch (evt.type) {
-      case 'keypress':
+      case 'keyup':
         if (evt.keyCode != evt.DOM_VK_ESCAPE)
           return;
 
         if (this.close())
           evt.preventDefault();
+        break;
+
       case 'received':
-        var message = evt.message;
-        console.log('Received message from ' + message.sender + ': ' +
-                    message.body);
-        messagesHack.push(message);
-        window.setTimeout(function () {
-          ConversationView.showConversation(ConversationView.filter);
-        }, 0);
+        var msg = evt.message;
+
+        if (this.filter)
+          this.showConversation(ConversationView.filter, msg);
+        break;
+
+      case 'transitionend':
+        if (document.body.classList.contains('conversation'))
+          return;
+
+        this.view.innerHTML = '';
+        break;
+
+      case 'hashchange':
+        var num = this.getNumFromHash();
+        if (!num) {
+          this.filter = null;
+          return;
+        }
+
+        this.showConversation(num);
+        break;
+
+      case 'resize':
+        if (!document.body.classList.contains('conversation'))
+          return;
+
+        this.updateInputHeight();
+        this.scrollViewToBottom();
         break;
     }
   },
   close: function cv_close() {
-    var view = document.getElementById('conversationView');
-    if (view.hidden)
+    if (!document.body.classList.contains('conversation'))
       return false;
 
-    view.classList.remove('slideIn');
-    view.classList.add('slideOut');
-
-    view.addEventListener('transitionend', function slideOut(evt) {
-      view.removeEventListener('transitionend', slideOut);
-      var text = document.getElementById('text');
-      text.value = text.style.height = '';
-
-      view.hidden = true;
-    });
+    window.location.hash = '';
     return true;
   },
   sendMessage: function cv_sendMessage() {
-    var contact = document.getElementById('contact');
-    var text = document.getElementById('text');
-    if (contact.value == '' || text.value == '')
+    var num = this.num.value;
+    var text = document.getElementById('view-msg-text').value;
+
+    if (num === '' || text === '')
       return;
 
-    MessageManager.send(contact.value, text.value, function onsent(msg) {
-      // There was an error. We should really do some error handling here.
-      // or in send() or wherever.
-      if (!msg)
+    MessageManager.send(num, text, function onsent(msg) {
+      if (!msg) {
+        ConversationView.input.value = text;
+        ConversationView.updateInputHeight();
+
+        if (ConversationView.filter) {
+          if (window.location.hash !== '#num=' + ConversationView.filter)
+            window.location.hash = '#num=' + ConversationView.filter;
+          else
+            ConversationView.showConversation(ConversationView.filter);
+        }
+        ConversationListView.updateConversationList();
         return;
+      }
 
-      // Copy all the information from the actual message object to the
-      // preliminary message object. Then update the view.
-      for (var key in msg)
-        message[msg] = msg[key];
-
-      if (ConversationView.filter)
-        ConversationView.showConversation(ConversationView.filter);
+      // Add a slight delay so that the database has time to write the
+      // message in the background. Ideally we'd just be updating the UI
+      // from "sending..." to "sent" at this point...
+      window.setTimeout(function() {
+        if (ConversationView.filter) {
+          if (window.location.hash !== '#num=' + ConversationView.filter)
+            window.location.hash = '#num=' + ConversationView.filter;
+          else
+            ConversationView.showConversation(ConversationView.filter);
+        }
+        ConversationListView.updateConversationList();
+      }, 100);
     });
 
     // Create a preliminary message object and update the view right away.
     var message = {
       sender: null,
-      receiver: contact.value,
-      body: text.value
+      receiver: num,
+      delivery: 'sending',
+      body: text,
+      timestamp: new Date()
     };
-    messagesHack.push(message);
 
-    text.value = "";
-    if (ConversationView.filter) {
-      ConversationView.showConversation(ConversationView.filter);
-      return;
-    }
-    ConversationView.close();
-    MessageView.showConversations();
+    window.setTimeout((function updateMessageField() {
+      this.input.value = '';
+      this.updateInputHeight();
+      this.input.focus();
+
+      if (this.filter) {
+        this.showConversation(this.filter, message);
+        return;
+      }
+      this.showConversation(num, message);
+    }).bind(this), 0);
+
+    ConversationListView.updateConversationList(message);
   }
 };
 
-ConversationView.init();
+window.addEventListener('localized', function showBody() {
+  // get the [lang]-[REGION] setting
+  // TODO: expose [REGION] in navigator.mozRegion or document.mozL10n.region?
+  if (navigator.mozSettings) {
+    var request = navigator.mozSettings.getLock().get('language.current');
+    request.onsuccess = function() {
+      selectedLocale = request.result['language.current'] || navigator.language;
+      ConversationView.init();
+      ConversationListView.init();
+    }
+  }
 
-function onKeyPress(evt) {
-  var target = evt.originalTarget;
-  setTimeout(function() {
-    target.style.height = '';
-    target.style.height = '-moz-calc(' + target.scrollHeight + 'px + 32px)';
-  }, 0);
+  // Set the 'lang' and 'dir' attributes to <html> when the page is translated
+  if (document.mozL10n && document.mozL10n.language) {
+    var lang = document.mozL10n.language;
+    var html = document.querySelector('html');
+    html.setAttribute('lang', lang.code);
+    html.setAttribute('dir', lang.direction);
+  }
+
+  // <body> children are hidden until the UI is translated
+  document.body.classList.remove('hidden');
+});
+
+var selectedLocale = 'en-US';
+
+var kLocaleFormatting = {
+  'en-US': 'xxx-xxx-xxxx',
+  'fr-FR': 'xx xx xx xx xx',
+  'es-ES': 'xx xxx xxxx'
+};
+
+function formatNumber(number) {
+  var format = kLocaleFormatting[selectedLocale];
+
+  if (number[0] == '+') {
+    switch (number[1]) {
+      case '1': // North America
+        format = 'xx ' + kLocaleFormatting['en-US'];
+        break;
+      case '2': // Africa
+        break;
+      case '3': // Europe
+        switch (number[2]) {
+          case '0': // Greece
+            break;
+          case '1': // Netherlands
+            break;
+          case '2': // Belgium
+            break;
+          case '3': // France
+            format = 'xxx ' + kLocaleFormatting['fr-FR'];
+            break;
+          case '4': // Spain
+            format = 'xxx ' + kLocaleFormatting['es-ES'];
+            break;
+            break;
+          case '5':
+            break;
+          case '6': // Hungary
+            break;
+          case '7':
+            break;
+          case '8':
+            break;
+          case '9': // Italy
+            break;
+        }
+        break;
+      case '4': // Europe
+        break;
+      case '5': // South/Latin America
+        break;
+      case '6': // South Pacific/Oceania
+        break;
+      case '7': // Russia and Kazakhstan
+        break;
+      case '8': // East Asia, Special Services
+        break;
+      case '9': // West and South Asia, Middle East
+        break;
+    }
+  }
+
+  var formatted = '';
+
+  var index = 0;
+  for (var i = 0; i < number.length; i++) {
+    var c = format[index++];
+    if (c && c != 'x') {
+      formatted += c;
+      index++;
+    }
+
+    formatted += number[i];
+  }
+
+  return formatted;
 }
+

@@ -2,3 +2,10 @@
 *.rej
 *.orig
 *.swp
+*~
+manifest.appcache
+apps/settings/gaia-commit.txt
+profile/
+xulrunner/
+xulrunner-sdk/
+node_modules

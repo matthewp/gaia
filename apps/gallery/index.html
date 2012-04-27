@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html manifest="manifest.appcache">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="pragma" content="no-cache">
+    <title>Gallery</title>
+    <link rel="stylesheet" href="style/gallery.css" type="text/css" />
+    <link rel="resource" type="application/l10n" href="locale/gallery.properties" />
+    <script>
+      var host = document.location.host;
+      var domain = host.replace(/(^[\w\d]+\.)?([\w\d]+\.[a-z]+)/, '$2');
+      var src = 'http://' + domain + '/webapi.js';
+      document.write('<script src="' + src + '"><\/script>');
+    </script>
+    </script>
+    <script defer src="js/gestures.js"></script>
+    <script defer src="js/gallery.js"></script>
+  </head>
+
+  <body class="hidden">
+    <header id="header">
+      <h1 data-l10n-id="pictures">Pictures</h1>
+    </header>
+
+    <!-- Thumbnails inserted here -->
+    <ul id="thumbnails"></ul>
+
+    <!-- Photos inserted here -->
+    <div id="photos" class="hidden">
+      <!-- the current photo plus next and previous waiting in the wings -->
+      <div class="photoFrame previousPhoto"></div>
+      <div class="photoFrame currentPhoto"></div>
+      <div class="photoFrame nextPhoto"></div>
+    </div>
+
+    <div id="player-controls" class="hidden">
+      <a id="back-button" class="button" href="#"></a>
+      <a id="play-button" class="button" href="#"></a>
+    </div>
+
+  </body>
+</html>
