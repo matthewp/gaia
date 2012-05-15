@@ -4,6 +4,8 @@
 # GAIA_DOMAIN : change that if you plan to use a different domain to update   #
 #               your applications or want to use a local domain               #
 #                                                                             #
+# HOMESCREEN  : url of the homescreen to start on                             #
+#                                                                             #
 # ADB         : if you use a device and plan to send update it with your work #
 #               you need to have adb in your path or you can edit this line to#
 #               specify its location.                                         #
@@ -15,6 +17,8 @@
 #                                                                             #
 ###############################################################################
 GAIA_DOMAIN?=gaiamobile.org
+
+HOMESCREEN?=http://system.$(GAIA_DOMAIN)
 
 ADB?=adb
 
@@ -113,8 +117,9 @@ manifests:
 			echo \"origin\": \"http://$$d.$(GAIA_DOMAIN)$(GAIA_PORT)\", ;\
 			echo \"installOrigin\": \"http://$$d.$(GAIA_DOMAIN)$(GAIA_PORT)\", ;\
 			echo \"receipt\": null, ;\
-			echo \"installTime\": 132333986000 ;\
-                        echo },) >> ../profile/webapps/webapps.json;\
+			echo \"installTime\": 132333986000, ;\
+			echo \"manifestURL\": \"http://$$d.$(GAIA_DOMAIN)$(GAIA_PORT)/manifest.json\" ;\
+			echo },) >> ../profile/webapps/webapps.json;\
 		fi \
 	done
 	@$(SED_INPLACE_NO_SUFFIX) -e '$$s|,||' profile/webapps/webapps.json
@@ -139,7 +144,7 @@ endif
 # some commands for invoking it. But it is platform dependent
 ifeq ($(SYS),Darwin)
 # We're on a mac
-XULRUNNER_DOWNLOAD=http://ftp.mozilla.org/pub/mozilla.org/xulrunner/releases/11.0/sdk/xulrunner-11.0.en-US.mac-x86_64.sdk.tar.bz2
+XULRUNNER_DOWNLOAD=ftp://ftp.mozilla.org/pub/xulrunner/nightly/2012/05/2012-05-08-03-05-17-mozilla-central/xulrunner-15.0a1.en-US.mac-x86_64.sdk.tar.bz2
 XULRUNNER=./xulrunner-sdk/bin/run-mozilla.sh
 XPCSHELL=./xulrunner-sdk/bin/xpcshell
 
@@ -163,11 +168,15 @@ install-xulrunner :
 	test -d xulrunner || ($(DOWNLOAD_CMD) $(XULRUNNER_DOWNLOAD) && tar xjf xulrunner*.tar.bz2 && rm xulrunner*.tar.bz2)
 endif
 
+settingsdb :
+	@echo "B2G pre-populate settings DB."
+	$(XULRUNNER) $(XPCSHELL) -e 'const PROFILE_DIR = "$(CURDIR)/profile"' build/settings.js
+
 # Generate profile/prefs.js
 preferences: install-xulrunner
 	@echo "Generating prefs.js..."
 	@mkdir -p profile
-	$(XULRUNNER) $(XPCSHELL) -e 'const GAIA_DIR = "$(CURDIR)"; const PROFILE_DIR = "$(CURDIR)/profile"; const GAIA_DOMAIN = "$(GAIA_DOMAIN)$(GAIA_PORT)"; const DEBUG = $(DEBUG)' build/preferences.js
+	$(XULRUNNER) $(XPCSHELL) -e 'const GAIA_DIR = "$(CURDIR)"; const PROFILE_DIR = "$(CURDIR)/profile"; const GAIA_DOMAIN = "$(GAIA_DOMAIN)$(GAIA_PORT)"; const DEBUG = $(DEBUG); const HOMESCREEN = "$(HOMESCREEN)"' build/preferences.js
 	@echo "Done"
 
 
@@ -269,8 +278,12 @@ endif
 #     let us remove the update-offline-manifests target dependancy of the
 #     default target.
 stamp-commit-hash:
-	git log -1 --format="%H%n%at" HEAD > apps/settings/gaia-commit.txt
-
+	(if [ -d ./.git ]; then \
+	  git log -1 --format="%H%n%at" HEAD > apps/settings/gaia-commit.txt; \
+	else \
+	  echo 'Unknown Git commit; build date shown here.' > apps/settings/gaia-commit.txt; \
+	  date +%s >> apps/settings/gaia-commit.txt; \
+	fi)
 
 # Erase all the indexedDB databases on the phone, so apps have to rebuild them.
 delete-databases:
