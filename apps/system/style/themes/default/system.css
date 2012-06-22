@@ -1,30 +1,4 @@
-/* Fonts */
-@font-face {
-  font-family: 'Open Sans';
-  src: url('fonts/Open-Sans.woff');
-}
-@font-face {
-  font-family: 'Open Sans';
-  font-weight: bold;
-  src: url('fonts/Open-Sans-Bold.woff');
-}
-@font-face {
-  font-family: 'Open Sans';
-  font-weight: 600;
-  src: url('fonts/Open-Sans-Semibold.woff');
-}
-
-body {
-  font-family: 'Open Sans Semibold', sans-serif;
-  color: white;
-  font-size: 15px;
-}
-
 /* Notification Screen */
-
-#grippy {
-  background: #111 url(images/grippy.png) no-repeat 50% 50%;
-}
 
 #notifications-container .notification > a.close {
   background: url('images/notifications/close.png') center center no-repeat;

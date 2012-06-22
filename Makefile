@@ -212,7 +212,7 @@ else
 	@echo "Can't populate on Linux. You can still install."
 endif
 
-DB_TARGET_PATH = /data/b2g/mozilla/`$(ADB) shell ls -1 /data/b2g/mozilla/ | grep default | tr -d [:cntrl:]`/indexedDB
+DB_TARGET_PATH = /data/local/indexedDB
 ifneq ($(SYS),Darwin)
 DB_SOURCE_PATH = $(CURDIR)/build/indexeddb
 else
@@ -382,8 +382,7 @@ stamp-commit-hash:
 
 # Erase all the indexedDB databases on the phone, so apps have to rebuild them.
 delete-databases:
-	$(ADB) shell rm -r /data/b2g/mozilla/*.default/indexedDB/*
-
+	$(ADB) shell rm -r /data/local/indexedDB/*
 
 # Take a screenshot of the device and put it in screenshot.png
 screenshot:
@@ -439,9 +438,17 @@ install-gaia: profile
 	$(ADB) shell kill $(shell $(ADB) shell toolbox ps | grep "b2g" | awk '{ print $$2; }')
 	@echo 'Rebooting b2g now'
 
+# Copy demo media to the sdcard.
+# If we've got old style directories on the phone, rename them first.
+# Note that we'll soon have to rename Pictures back to DCIM.
 install-media-samples:
-	$(ADB) push media-samples/DCIM /sdcard/DCIM
-	$(ADB) push media-samples/videos /sdcard/videos
-	$(ADB) push media-samples/music /sdcard/music
+	$(ADB) shell 'if test -d /sdcard/DCIM; then mv /sdcard/DCIM /sdcard/Pictures; fi'
+	$(ADB) shell 'if test -d /sdcard/music; then mv /sdcard/music /sdcard/music.temp; mv /sdcard/music.temp /sdcard/Music; fi'
+	$(ADB) shell 'if test -d /sdcard/videos; then mv /sdcard/videos /sdcard/Movies;	fi'
+
+	$(ADB) push media-samples/Pictures /sdcard/Pictures
+	$(ADB) push media-samples/Movies /sdcard/Movies
+	$(ADB) push media-samples/Music /sdcard/Music
+
 
 demo: install-media-samples install-gaia

@@ -31,8 +31,7 @@ var Recents = {
       db.createObjectStore(self.STORENAME, { keyPath: 'date' });
     };
 
-    if (this.view)
-      this.startUpdatingDates();
+    this.startUpdatingDates();
   },
 
   cleanup: function re_cleanup() {
@@ -66,7 +65,6 @@ var Recents = {
       setreq.onsuccess = (function() {
         if (this.view) {
           var entry = this.createEntry(recentCall);
-
           var firstEntry = this.view.firstChild;
           this.view.insertBefore(entry, firstEntry);
         }
@@ -150,7 +148,7 @@ var Recents = {
   },
 
   startUpdatingDates: function re_startUpdatingDates() {
-    if (this._prettyDatesInterval)
+    if (this._prettyDatesInterval || !this.view)
       return;
 
     var self = this;
